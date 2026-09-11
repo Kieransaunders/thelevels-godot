@@ -19,6 +19,6 @@ echo "== godot headless import =="
 "$THELEVELS_GODOT_BIN" --headless --path . --import >/dev/null
 
 echo "== godot headless run ($FRAMES frames) =="
-"$THELEVELS_GODOT_BIN" --headless --path . --quit-after "$FRAMES"
+"$THELEVELS_GODOT_BIN" --headless --path . --quit-after "$FRAMES" -- --verify-p3
 
 echo "== verify.sh OK =="
