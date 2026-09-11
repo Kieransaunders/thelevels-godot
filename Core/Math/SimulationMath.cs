@@ -50,6 +50,18 @@ public static class SimulationMath
     public static bool Approximately(float a, float b)
         => Abs(b - a) < Max(1e-06f * Max(Abs(a), Abs(b)), Epsilon * 8f);
 
+    /// <summary>Unity's Mathf.InverseLerp: 0..1 factor of v between a and b (no extrapolation).</summary>
+    public static float InverseLerp(float a, float b, float v)
+        => a != b ? Clamp01((v - a) / (b - a)) : 0f;
+
+    /// <summary>Unity's Mathf.SmoothStep: hermite interpolation over [from, to] with clamped input.</summary>
+    public static float SmoothStep(float from, float to, float t)
+    {
+        t = InverseLerp(from, to, t);
+        t = t * t * (3f - 2f * t);
+        return from + (to - from) * t;
+    }
+
     /// <summary>Vector2.Distance equivalent over grid coordinates.</summary>
     public static float Distance(float ax, float az, float bx, float bz)
         => Sqrt((ax - bx) * (ax - bx) + (az - bz) * (az - bz));

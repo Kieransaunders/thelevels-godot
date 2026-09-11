@@ -12,7 +12,7 @@ namespace TheLevels.Tests
     /// </summary>
     public sealed class HeightfieldSimulationTests
     {
-        private HeightfieldSimulation simulation;
+        private HeightfieldSimulation simulation = null!;
 
         [SetUp]
         public void SetUp()
