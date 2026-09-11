@@ -1,5 +1,7 @@
 using Godot;
 using System;
+using TheLevels.Player;
+using TheLevels.Core.Simulation;
 using TheLevels.Simulation;
 using TheLevels.UI;
 using TheLevels.View;
@@ -10,6 +12,8 @@ public partial class Main : Node3D
 {
     public override void _Ready()
     {
+        InputBindings.Register();
+
         var host = new SimulationHost { Name = "SimulationHost" };
         AddChild(host);
         var view = new HeightfieldView { Name = "HeightfieldView" };
@@ -35,16 +39,17 @@ public partial class Main : Node3D
             Name = "MorningSun", RotationDegrees = new Vector3(-46, -32, 0),
             LightColor = new Color(1, .82f, .59f), LightEnergy = 1.15f, ShadowEnabled = true
         });
-        var camera = new Camera3D { Name = "WorldCamera", Current = true, Fov = 60, Near = .2f, Far = 400 };
+
+        var camera = new StrategyCamera { Name = "WorldCamera" };
         AddChild(camera);
-        // Fixed overview for P3. P4 will restore the source's interactive camera and start distance.
-        camera.Position = WorldCoordinates.ToGodot(54, 102, -90);
-        camera.LookAt(WorldCoordinates.ToGodot(0, 2.5f, 0));
-        camera.HOffset = -12;
+        var cursor = new WorldCursor { Name = "WorldCursor" };
+        AddChild(cursor);
+        cursor.Initialize(host, camera);
+
         var diagnostics = new Diagnostics { Name = "Diagnostics" };
         AddChild(diagnostics);
-        diagnostics.Initialize(host, view);
-        GD.Print($"The Levels P3: {host.Heightfield.Resolution}² world ready; engine {Engine.GetVersionInfo()["string"]}");
+        diagnostics.Initialize(host, view, cursor);
+        GD.Print($"The Levels: {host.Heightfield.Resolution}² world ready; engine {Engine.GetVersionInfo()["string"]}");
 
         string[] args = OS.GetCmdlineUserArgs();
         if (Array.Exists(args, a => a == "--verify-p3"))
@@ -52,7 +57,11 @@ public partial class Main : Node3D
             try { VerifyView(host, view, diagnostics); }
             catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
         }
-        if (Array.Exists(args, a => a == "--demo-fire")) diagnostics.IgniteReeds();
+        if (Array.Exists(args, a => a == "--verify-p4"))
+        {
+            try { VerifyCursor(host, camera, cursor); }
+            catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
+        }
         foreach (string arg in args)
             if (arg.StartsWith("--capture=")) CaptureAfterFrames(arg.Substring("--capture=".Length), diagnostics);
     }
@@ -108,6 +117,119 @@ public partial class Main : Node3D
         GD.Print("P3 adapter checks PASS: dirty-only rebuild, independent water/fire events, upward normals, clockwise winding, material, bounds, dry/wet alpha, detach cleanup, reset.");
     }
 
+    private void VerifyCursor(SimulationHost host, StrategyCamera camera, WorldCursor cursor)
+    {
+        var sim = host.Heightfield;
+        var fire = host.Fire;
+        sim.ResetSimulation(); fire.ResetFire();
+
+        // Tool switching drives matter selection.
+        cursor.SelectTool(MatterTool.Earth);
+        if (cursor.SelectedMatter != MatterType.Earth) throw new InvalidOperationException("Earth tool matter");
+        cursor.SelectTool(MatterTool.Water);
+        if (cursor.SelectedMatter != MatterType.Water) throw new InvalidOperationException("Water tool matter");
+
+        // Targeting: from the start view, screen centre must land inside the domain,
+        // and a corner ray may leave it. Water-tool targeting snaps to the water surface.
+        camera.ResetView();
+        var size = GetViewport().GetVisibleRect().Size;
+        if (!cursor.TryFindSurfaceAt(size / 2f, out Vector3 centre))
+            throw new InvalidOperationException("Centre targeting failed from start view");
+        if (!sim.ContainsWorldPosition(WorldCoordinates.ToSimulation(centre)))
+            throw new InvalidOperationException("Target outside domain");
+        var terrainUnder = sim.SampleTerrain(WorldCoordinates.ToSimulation(centre));
+        if (MathF.Abs(centre.Y - terrainUnder) > 1.5f)
+            throw new InvalidOperationException($"Terrain targeting off surface: y={centre.Y:0.00} terrain={terrainUnder:0.00}");
+
+        // Find a wet screen point by projecting a known wet cell; water tool must target
+        // the water surface above terrain there.
+        System.Numerics.Vector3 wet = FindWetCell(sim);
+        if (wet.Z == -1f) throw new InvalidOperationException("No wet cell");
+        Vector2 wetScreen = camera.UnprojectPosition(WorldCoordinates.ToGodot(wet.X, 0, wet.Z));
+        if (cursor.TryFindSurfaceAt(wetScreen, out Vector3 wetPoint))
+        {
+            float surface = sim.SampleSurface(WorldCoordinates.ToSimulation(wetPoint));
+            if (MathF.Abs(wetPoint.Y - surface) > 1.0f)
+                throw new InvalidOperationException("Water tool did not target the water surface");
+        }
+
+        // Earth brush: scoop fills the buffer with real volume accounting.
+        cursor.SelectTool(MatterTool.Earth);
+        float scooped = sim.ApplyBrush(new System.Numerics.Vector3(-8f, 0f, -4f), MatterType.Earth, true, 1f);
+        if (scooped <= 0f || sim.EarthBuffer <= 0f) throw new InvalidOperationException("Earth scoop accounting");
+
+        // Lightning: strikes dry reeds, cooldown blocks the second call, water strikes boil.
+        System.Numerics.Vector3 dry = FindFuelledDryCell(sim, fire);
+        if (dry.X == float.MaxValue) throw new InvalidOperationException("No dry fuelled cell for lightning");
+        cursor.TickCooldown(10f);
+        if (!cursor.LightningReady) throw new InvalidOperationException("Cooldown did not expire");
+        int struck = cursor.StrikeAt(dry);
+        if (struck <= 0 || fire.BurningCells <= 0) throw new InvalidOperationException("Lightning failed to kindle");
+        if (cursor.LightningReady) throw new InvalidOperationException("Cooldown not set by strike");
+        int second = cursor.StrikeAt(dry); // must be blocked by cooldown
+        if (second != 0) throw new InvalidOperationException("Cooldown failed to block second strike");
+
+        System.Numerics.Vector3 deep = FindDeepWetCell(sim);
+        cursor.TickCooldown(10f);
+        float waterBefore = sim.WaterBuffer;
+        cursor.StrikeAt(deep);
+        if (sim.WaterBuffer <= waterBefore)
+            throw new InvalidOperationException("Lightning over deep water did not scoop water");
+
+        // Pause semantics: both sims pause together; N steps both once.
+        sim.Paused = false;
+        sim.Paused = true; fire.Paused = true;
+        int waterSteps = sim.StepCount, fireSteps = fire.StepCount;
+        sim.StepOnce(); fire.StepOnce();
+        if (sim.StepCount != waterSteps + 1 || fire.StepCount != fireSteps + 1)
+            throw new InvalidOperationException("Single-step did not advance both sims once");
+
+        // Reset clears everything and restores the camera start view.
+        sim.ResetSimulation(); fire.ResetFire(); camera.ResetView();
+        if (sim.EarthBuffer != 0f || fire.BurningCells != 0 || sim.StepCount != 0)
+            throw new InvalidOperationException("Reset left residual state");
+
+        GD.Print("P4 adapter checks PASS: tool/matter switching, screen targeting on terrain, water-surface targeting, earth brush accounting, lightning kindle + cooldown + water boiling, pause/single-step, reset.");
+    }
+
+    private static System.Numerics.Vector3 FindWetCell(HeightfieldSimulation sim)
+    {
+        float half = sim.WorldSize * .5f;
+        for (int z = 0; z < sim.Resolution; z++)
+        for (int x = 0; x < sim.Resolution; x++)
+            if (sim.GetWater(x, z) > 0.5f)
+                return new System.Numerics.Vector3(x * sim.CellSize - half, 0, z * sim.CellSize - half);
+        return new System.Numerics.Vector3(0, 0, -1f);
+    }
+
+    private static System.Numerics.Vector3 FindFuelledDryCell(HeightfieldSimulation sim, FireSimulation fire)
+    {
+        float half = sim.WorldSize * .5f;
+        for (int z = 8; z < sim.Resolution - 8; z++)
+        for (int x = 8; x < sim.Resolution - 8; x++)
+        {
+            if (fire.GetFuel(x, z) < 0.45f || sim.GetWater(x, z) > 0f) continue;
+            return new System.Numerics.Vector3(x * sim.CellSize - half, 0, z * sim.CellSize - half);
+        }
+        return new System.Numerics.Vector3(float.MaxValue, 0, 0);
+    }
+
+    private static System.Numerics.Vector3 FindDeepWetCell(HeightfieldSimulation sim)
+    {
+        float half = sim.WorldSize * .5f;
+        for (int z = 4; z < sim.Resolution - 4; z++)
+        for (int x = 4; x < sim.Resolution - 4; x++)
+        {
+            if (sim.GetWater(x, z) < 1f) continue;
+            bool interior = true;
+            for (int dz = -3; dz <= 3 && interior; dz++)
+            for (int dx = -3; dx <= 3; dx++)
+                if (sim.GetWater(x + dx, z + dz) < 0.1f) { interior = false; break; }
+            if (interior) return new System.Numerics.Vector3(x * sim.CellSize - half, 0, z * sim.CellSize - half);
+        }
+        return new System.Numerics.Vector3(0, 0, -1f);
+    }
+
     private async void CaptureAfterFrames(string path, Diagnostics diagnostics)
     {
         // Explicit verification option only; normal play never writes screenshots.
@@ -115,6 +237,6 @@ public partial class Main : Node3D
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         using var image = GetViewport().GetTexture().GetImage();
         Error error = image.SavePng(ProjectSettings.GlobalizePath(path));
-        GD.Print($"P3 capture: {path} ({error})\n{diagnostics.Snapshot}");
+        GD.Print($"Capture: {path} ({error})\n{diagnostics.Snapshot}");
     }
 }
