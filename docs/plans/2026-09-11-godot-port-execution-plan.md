@@ -223,7 +223,7 @@ For each phase record: source baseline, changed files, commands and results, sce
 - [x] P1: original five heightfield tests and mapping/brush checks. Completed 2026-09-11 (commit 9cf18dd): 17/17 green (five originals with unchanged tolerances + 12 contract checks), 0 build warnings, Core references no engine assemblies.
 - [x] P2: original nine fire tests and documented source edge cases. Completed 2026-09-11 (commit af62019): 26/26 green, original suite 14/14 with unchanged assertions. Source edge cases characterized in docs/verification: RNG not reseeded by ResetFire; ember-drop budget overshoot (≤0.5 units) preserved.
 - [x] P3: terrain, water, fire rendering and live diagnostics. Completed 2026-09-11 (commit c1a5e50): --verify-p3 adapter gate green (dirty-only rebuild, independent sim events, winding/normals/alpha, detach cleanup); windowed runs at ~80 FPS with 0 corrections; screenshots in docs/verification/.
-- [ ] P4: camera, targeting, four tools and global controls.
+- [x] P4: camera, targeting, four tools and global controls. Completed 2026-09-11 (commit 72bbc32): --verify-p4 adapter gate green (tool switching, terrain vs water-surface targeting, brush accounting, lightning kindle/cooldown/water-boiling, pause+single-step, reset); interactive camera with Unity start view; screenshot with terrain-following ring recorded.
 - [ ] P5: druid behaviour, haven, deaths and ritual completion.
 - [ ] P6: native tool/ritual VFX and permitted asset provenance.
 - [ ] P7: standalone verification, soak, profiling and release evidence.
