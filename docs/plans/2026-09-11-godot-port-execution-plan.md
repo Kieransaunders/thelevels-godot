@@ -220,7 +220,7 @@ For each phase record: source baseline, changed files, commands and results, sce
 ## 7. Completion checklist
 
 - [x] P0: working Godot .NET/SDK, project wiring and startup. Completed 2026-09-11 (commit 0276a78). Evidence: `docs/verification/2026-09-11-p0.md`. Two environment gotchas recorded there: the macOS mono app has no embedded .NET runtime (`DOTNET_ROOT=/Volumes/External/DevExteralHD/dotnet` required), and the engine takes the project assembly name from `dotnet/project/assembly_name` in `project.godot` (not the csproj filename) — without it, every C# script fails with "associated class could not be found".
-- [ ] P1: original five heightfield tests and mapping/brush checks.
+- [x] P1: original five heightfield tests and mapping/brush checks. Completed 2026-09-11 (commit 9cf18dd): 17/17 green (five originals with unchanged tolerances + 12 contract checks), 0 build warnings, Core references no engine assemblies.
 - [ ] P2: original nine fire tests and documented source edge cases.
 - [ ] P3: terrain, water, fire rendering and live diagnostics.
 - [ ] P4: camera, targeting, four tools and global controls.
