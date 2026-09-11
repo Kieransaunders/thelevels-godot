@@ -1,0 +1,17 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Reference material is technique-only, not part of the shipped game (see reference/README.md).
+/reference/
+
+# macOS
+.DS_Store
+
+# .NET build output
+**/bin/
+**/obj/
+*.user
+
+# Test output
+**/TestResults/

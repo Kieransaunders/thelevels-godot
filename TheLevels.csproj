@@ -1,0 +1,16 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>TheLevels</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Simulation and tests live in separate projects; keep them out of the game assembly. -->
+    <Compile Remove="Core/**/*.cs" />
+    <Compile Remove="Tests/**/*.cs" />
+    <Compile Remove="reference/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Core/TheLevels.Core.csproj" />
+  </ItemGroup>
+</Project>

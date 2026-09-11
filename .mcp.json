@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "godot": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@coding-solo/godot-mcp"],
+      "env": {
+        "GODOT_PATH": "/Users/boss/Applications/Godot_mono.app/Contents/MacOS/Godot",
+        "DEBUG": "true"
+      }
+    }
+  }
+}
