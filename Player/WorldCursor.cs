@@ -36,7 +36,7 @@ public partial class WorldCursor : Node3D
     private bool hasTarget;
     private float strikeCooldownRemaining;
     private MatterType carriedMatter = MatterType.Earth;
-    // Set when a held brush transferred nothing this frame (buffer full/empty, dry water).
+    // Set when a held brush transferred nothing this frame (buffer full, or nothing carried).
     private bool brushIdle;
 
     private const float StrikeCooldown = 1.4f;
@@ -214,8 +214,8 @@ public partial class WorldCursor : Node3D
 
     private Color RingColor()
     {
-        // A held brush that moves nothing (buffer full or empty, dry ground under the
-        // water tool) looks identical to a broken click otherwise.
+        // A held brush that moves nothing (buffer full, nothing carried to pour)
+        // looks identical to a broken click otherwise.
         if (brushIdle) return new Color(.55f, .55f, .52f, .75f);
 
         if (SelectedTool == MatterTool.Lightning)
