@@ -35,7 +35,7 @@ public partial class Main : Node3D
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
             AmbientLightColor = new Color(.72f, .79f, .82f),
             AmbientLightEnergy = .65f,
-            TonemapMode = Godot.Environment.ToneMapper.Linear,
+            TonemapMode = Godot.Environment.ToneMapper.Agx,
             FogEnabled = true,
             FogLightColor = new Color(.55f, .62f, .59f),
             FogDensity = .0007f,

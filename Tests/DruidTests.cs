@@ -113,6 +113,67 @@ namespace TheLevels.Tests
             Assert.That(band.Agents[0].State, Is.EqualTo(DruidState.Travel));
         }
 
+        [Test]
+        public void AnEarthBridgeOpensAChannelTheFloodHadClosed()
+        {
+            Vector3 channel = DryGround();
+            Flood(channel, DruidAgent.DrownDepth + 0.2f, DruidAgent.ProbeDistance);
+            DruidAgent agent = band.Agents[0];
+            Vector2 start = new(agent.Position.X, agent.Position.Z);
+
+            // Blocked: deep water past every probe, so the steering finds no safe step.
+            Advance(0.5f);
+            Assert.That(Horizontal(agent.Position, WithXZ(start)), Is.LessThan(0.01f), "walked through deep water");
+
+            Bridge(channel);
+            band.ResetAll();
+            agent = band.Agents[0];
+            float before = Horizontal(agent.Position, band.HavenCenter);
+            Advance(1f);
+
+            Assert.That(agent.IsDead, Is.False, "drowned on the bridge");
+            Assert.That(Horizontal(agent.Position, band.HavenCenter), Is.LessThan(before - 0.5f),
+                "did not cross the bridge toward the haven");
+        }
+
+        [Test]
+        public void TurningTakesTheShortWayRoundThePiWrap()
+        {
+            // 3.0 to -3.0 is 0.283 rad the short way over PI, not 6.0 rad back through zero.
+            // The result is not re-wrapped, so compare as an angle.
+            Assert.That(Wrapped(DruidAgent.TurnToward(3.0f, -3.0f, 1f) - -3.0f), Is.EqualTo(0f).Within(0.001f));
+            Assert.That(DruidAgent.TurnToward(3.0f, -3.0f, 0.5f), Is.EqualTo(3.14159f).Within(0.01f),
+                "turned the long way round");
+            Assert.That(DruidAgent.TurnToward(0.2f, -0.2f, 1f), Is.EqualTo(-0.2f).Within(0.001f));
+        }
+
+        private static Vector3 WithXZ(Vector2 xz) => new(xz.X, 0f, xz.Y);
+
+        private static float Wrapped(float radians)
+        {
+            float turn = System.MathF.PI * 2f;
+            float wrapped = radians % turn;
+            if (wrapped > System.MathF.PI) wrapped -= turn;
+            if (wrapped < -System.MathF.PI) wrapped += turn;
+            return wrapped;
+        }
+
+        /// <summary>Raises earth across the flooded channel and lets the water run off it.</summary>
+        private void Bridge(Vector3 channel)
+        {
+            Vector3 quarry = DryGround();
+            for (int load = 0; load < 60; load++)
+            {
+                heightfield.ApplyBrush(quarry, MatterType.Earth, true, 1f);
+                heightfield.ApplyBrush(channel, MatterType.Earth, false, 1f);
+            }
+            heightfield.Paused = false;
+            for (int step = 0; step < 240; step++) heightfield.StepOnce();
+            heightfield.Paused = true;
+            Assert.That(heightfield.SampleWater(channel), Is.LessThan(DruidAgent.WadeDepth),
+                "the bridge did not clear the channel");
+        }
+
         private void Advance(float seconds)
         {
             const float step = 1f / 60f;

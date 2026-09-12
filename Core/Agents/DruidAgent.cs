@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using TheLevels.Core.Math;
 using TheLevels.Core.Simulation;
 
 namespace TheLevels.Core.Agents;
@@ -133,16 +134,17 @@ public sealed class DruidAgent
     private Vector3 ClampToWorld(Vector3 position)
     {
         float half = heightfield.WorldSize * 0.5f - 2f;
-        position.X = System.Math.Clamp(position.X, -half, half);
-        position.Z = System.Math.Clamp(position.Z, -half, half);
+        position.X = SimulationMath.Clamp(position.X, -half, half);
+        position.Z = SimulationMath.Clamp(position.Z, -half, half);
         return position;
     }
 
-    private static float TurnToward(float from, float to, float t)
+    /// <summary>Shortest-arc turn from one yaw to another; internal for the wrap test.</summary>
+    public static float TurnToward(float from, float to, float t)
     {
         float difference = (to - from + MathF.PI) % (MathF.PI * 2f);
         if (difference < 0f) difference += MathF.PI * 2f;
-        return from + (difference - MathF.PI) * System.Math.Clamp(t, 0f, 1f);
+        return from + (difference - MathF.PI) * SimulationMath.Clamp01(t);
     }
 
     private static Vector2 Rotate(Vector2 v, float radians)
