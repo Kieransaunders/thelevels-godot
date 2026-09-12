@@ -131,38 +131,38 @@ public partial class Main : Node3D
         var fire = host.Fire;
         sim.ResetSimulation(); fire.ResetFire();
 
-        // Tool switching drives matter selection.
-        cursor.SelectTool(MatterTool.Earth);
-        if (cursor.SelectedMatter != MatterType.Earth) throw new InvalidOperationException("Earth tool matter");
-        cursor.SelectTool(MatterTool.Water);
-        if (cursor.SelectedMatter != MatterType.Water) throw new InvalidOperationException("Water tool matter");
+        // The matter hand auto-selects: water over open water, earth over dry ground.
+        cursor.SelectTool(MatterTool.Matter);
+        System.Numerics.Vector3 wet = FindWetCell(sim);
+        if (wet.Z == -1f) throw new InvalidOperationException("No wet cell");
+        if (cursor.MatterFor(wet) != MatterType.Water) throw new InvalidOperationException("Matter hand missed open water");
+        System.Numerics.Vector3 dryLand = FindDryCell(sim);
+        if (dryLand.Z == -1f) throw new InvalidOperationException("No dry cell");
+        if (cursor.MatterFor(dryLand) != MatterType.Earth) throw new InvalidOperationException("Matter hand missed dry land");
 
-        // Targeting: from the start view, screen centre must land inside the domain,
-        // and a corner ray may leave it. Water-tool targeting snaps to the water surface.
+        // Targeting: from the start view, screen centre must land on the tool-appropriate
+        // surface, and a corner ray may leave it. Wet cells snap to the water surface.
         camera.ResetView();
         var size = GetViewport().GetVisibleRect().Size;
         if (!cursor.TryFindSurfaceAt(size / 2f, out Vector3 centre))
             throw new InvalidOperationException("Centre targeting failed from start view");
         if (!sim.ContainsWorldPosition(WorldCoordinates.ToSimulation(centre)))
             throw new InvalidOperationException("Target outside domain");
-        var terrainUnder = sim.SampleTerrain(WorldCoordinates.ToSimulation(centre));
-        if (MathF.Abs(centre.Y - terrainUnder) > 1.5f)
-            throw new InvalidOperationException($"Terrain targeting off surface: y={centre.Y:0.00} terrain={terrainUnder:0.00}");
+        var surfaceUnder = sim.SampleSurface(WorldCoordinates.ToSimulation(centre));
+        if (MathF.Abs(centre.Y - surfaceUnder) > 1.5f)
+            throw new InvalidOperationException($"Surface targeting off: y={centre.Y:0.00} surface={surfaceUnder:0.00}");
 
-        // Find a wet screen point by projecting a known wet cell; water tool must target
+        // Find a wet screen point by projecting the known wet cell; the hand must target
         // the water surface above terrain there.
-        System.Numerics.Vector3 wet = FindWetCell(sim);
-        if (wet.Z == -1f) throw new InvalidOperationException("No wet cell");
         Vector2 wetScreen = camera.UnprojectPosition(WorldCoordinates.ToGodot(wet.X, 0, wet.Z));
         if (cursor.TryFindSurfaceAt(wetScreen, out Vector3 wetPoint))
         {
             float surface = sim.SampleSurface(WorldCoordinates.ToSimulation(wetPoint));
             if (MathF.Abs(wetPoint.Y - surface) > 1.0f)
-                throw new InvalidOperationException("Water tool did not target the water surface");
+                throw new InvalidOperationException("Matter hand did not target the water surface");
         }
 
         // Earth brush: scoop fills the buffer with real volume accounting.
-        cursor.SelectTool(MatterTool.Earth);
         float scooped = sim.ApplyBrush(new System.Numerics.Vector3(-8f, 0f, -4f), MatterType.Earth, true, 1f);
         if (scooped <= 0f || sim.EarthBuffer <= 0f) throw new InvalidOperationException("Earth scoop accounting");
 
@@ -197,7 +197,7 @@ public partial class Main : Node3D
         if (sim.EarthBuffer != 0f || fire.BurningCells != 0 || sim.StepCount != 0)
             throw new InvalidOperationException("Reset left residual state");
 
-        GD.Print("P4 adapter checks PASS: tool/matter switching, screen targeting on terrain, water-surface targeting, earth brush accounting, lightning kindle + cooldown + water boiling, pause/single-step, reset.");
+        GD.Print("P4 adapter checks PASS: matter hand auto-select (water/wet, earth/dry), surface targeting, water-surface snapping, earth brush accounting, lightning kindle + cooldown + water boiling, pause/single-step, reset.");
     }
 
     private static System.Numerics.Vector3 FindWetCell(HeightfieldSimulation sim)
@@ -206,6 +206,16 @@ public partial class Main : Node3D
         for (int z = 0; z < sim.Resolution; z++)
         for (int x = 0; x < sim.Resolution; x++)
             if (sim.GetWater(x, z) > 0.5f)
+                return new System.Numerics.Vector3(x * sim.CellSize - half, 0, z * sim.CellSize - half);
+        return new System.Numerics.Vector3(0, 0, -1f);
+    }
+
+    private static System.Numerics.Vector3 FindDryCell(HeightfieldSimulation sim)
+    {
+        float half = sim.WorldSize * .5f;
+        for (int z = 0; z < sim.Resolution; z++)
+        for (int x = 0; x < sim.Resolution; x++)
+            if (sim.GetWater(x, z) <= 0f)
                 return new System.Numerics.Vector3(x * sim.CellSize - half, 0, z * sim.CellSize - half);
         return new System.Numerics.Vector3(0, 0, -1f);
     }

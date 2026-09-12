@@ -9,18 +9,16 @@ namespace TheLevels.Player;
 
 public enum MatterTool
 {
-    Earth,
-    Water,
+    Matter,
     Fire,
     Lightning
 }
 
 /// <summary>
-/// Port of WorldCursorController: tool selection (1–4), surface targeting with five
-/// refinement passes (earth/fire target terrain; water/lightning target the water
-/// surface when wet), scoop/drop brushes, lightning cooldown and the R/Space/N/F
-/// global controls. The Unity LineRenderer pointer/god-hand visuals are P6; here the
-/// terrain-following brush ring plus lightweight strike flashes carry the feedback.
+/// Port of WorldCursorController, with the matter hand reworked to From Dust rules:
+/// the hand auto-selects whatever lies under the brush (water over wet cells, earth
+/// over dry) and carries it; right click pours the carried matter. Fire and lightning
+/// stay explicit tools on keys 3 and 4, with 1/2 returning to the matter hand.
 /// </summary>
 public partial class WorldCursor : Node3D
 {
@@ -37,6 +35,7 @@ public partial class WorldCursor : Node3D
     private Vector3 cursorPosition;
     private bool hasTarget;
     private float strikeCooldownRemaining;
+    private MatterType carriedMatter = MatterType.Earth;
     // Set when a held brush transferred nothing this frame (buffer full/empty, dry water).
     private bool brushIdle;
 
@@ -44,17 +43,24 @@ public partial class WorldCursor : Node3D
     private const int RingSegments = 64;
     private const float RingLift = 0.16f;
     private const float FlashLifetime = 0.35f;
+    // Wetness above this reads as open water: the hand scoops water there, earth below it.
+    private const float WetThreshold = 0.02f;
 
     private static readonly Color EarthRing = new(1f, 0.68f, 0.20f, 0.95f);
     private static readonly Color WaterRing = new(0.35f, 0.78f, 1f, 0.95f);
     private static readonly Color FireRing = new(1f, 0.32f, 0.10f, 0.95f);
     private static readonly Color LightningRing = new(0.88f, 0.82f, 1f, 0.95f);
 
-    public MatterTool SelectedTool { get; private set; } = MatterTool.Earth;
+    public MatterTool SelectedTool { get; private set; } = MatterTool.Matter;
 
     /// <summary>Select the active tool programmatically (mirrors the 1–4 keys).</summary>
     public void SelectTool(MatterTool tool) => SelectedTool = tool;
-    public MatterType SelectedMatter => SelectedTool == MatterTool.Water ? MatterType.Water : MatterType.Earth;
+    public MatterType CarriedMatter => carriedMatter;
+
+    /// <summary>What the hand would scoop at this point: water over open water, earth on land.</summary>
+    public MatterType MatterFor(System.Numerics.Vector3 simPoint) =>
+        simulation != null && simulation.SampleWater(simPoint) > WetThreshold ? MatterType.Water : MatterType.Earth;
+
     public FireSimulation Fire => fire;
     public Vector3 CursorPosition => cursorPosition;
     public bool HasTarget => hasTarget;
@@ -97,14 +103,18 @@ public partial class WorldCursor : Node3D
         brushIdle = false;
         switch (SelectedTool)
         {
-            case MatterTool.Earth:
-                if (scooping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Earth, true, dt) <= 0f;
-                if (dropping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Earth, false, dt) <= 0f;
+            case MatterTool.Matter:
+            {
+                var matter = MatterFor(simPoint);
+                if (scooping)
+                {
+                    float moved = simulation.ApplyBrush(simPoint, matter, true, dt);
+                    if (moved > 0f) carriedMatter = matter;
+                    brushIdle = moved <= 0f;
+                }
+                if (dropping) brushIdle = simulation.ApplyBrush(simPoint, carriedMatter, false, dt) <= 0f;
                 break;
-            case MatterTool.Water:
-                if (scooping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Water, true, dt) <= 0f;
-                if (dropping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Water, false, dt) <= 0f;
-                break;
+            }
             case MatterTool.Fire:
                 if (scooping) fire.ApplyFireBrush(simPoint, true, dt);
                 if (dropping) fire.ApplyFireBrush(simPoint, false, dt);
@@ -126,8 +136,9 @@ public partial class WorldCursor : Node3D
     /// <summary>Unity's Update key handling, expressed through Input Map actions.</summary>
     private void HandleGlobalControls()
     {
-        if (Input.IsActionJustPressed(InputBindings.ToolEarth)) SelectedTool = MatterTool.Earth;
-        if (Input.IsActionJustPressed(InputBindings.ToolWater)) SelectedTool = MatterTool.Water;
+        // The hand is matter-agnostic now; 1/2 both just return to it from fire/lightning.
+        if (Input.IsActionJustPressed(InputBindings.ToolEarth)) SelectedTool = MatterTool.Matter;
+        if (Input.IsActionJustPressed(InputBindings.ToolWater)) SelectedTool = MatterTool.Matter;
         if (Input.IsActionJustPressed(InputBindings.ToolFire)) SelectedTool = MatterTool.Fire;
         if (Input.IsActionJustPressed(InputBindings.ToolLightning)) SelectedTool = MatterTool.Lightning;
 
@@ -212,18 +223,17 @@ public partial class WorldCursor : Node3D
             float pulse = 0.7f + 0.3f * MathF.Sin((float)Time.GetUnixTimeFromSystem() * 9f);
             return new Color(LightningRing.R * pulse, LightningRing.G * pulse, LightningRing.B * pulse, 0.95f);
         }
-        return SelectedTool switch
-        {
-            MatterTool.Water => WaterRing,
-            MatterTool.Fire => FireRing,
-            _ => EarthRing
-        };
+        if (SelectedTool == MatterTool.Fire) return FireRing;
+        // Hovering shows what a scoop would take; while pouring, show what will come out.
+        var shown = Input.IsActionPressed(InputBindings.Drop) ? carriedMatter : MatterFor(WorldCoordinates.ToSimulation(cursorPosition));
+        return shown == MatterType.Water ? WaterRing : EarthRing;
     }
 
     /// <summary>
     /// Unity TryFindSurface: cast a screen ray, start at plane y=1, then five refinements
-    /// against the tool-appropriate surface (water surface for water/lightning when wet,
-    /// terrain otherwise). Fails outside the domain or for horizontal rays.
+    /// against the tool-appropriate surface (the water surface wherever the ground is wet,
+    /// terrain otherwise; fire always aims at terrain). Fails outside the domain or for
+    /// horizontal rays.
     /// </summary>
     public bool TryFindSurfaceAt(Vector2 screenPosition, out Vector3 point)
     {
@@ -236,13 +246,13 @@ public partial class WorldCursor : Node3D
 
         float t = (origin.Y - 1f) / -direction.Y;
         point = origin + direction * MathF.Max(0f, t);
-        bool toWaterSurface = SelectedTool == MatterTool.Water || SelectedTool == MatterTool.Lightning;
+        bool fireTargetsTerrain = SelectedTool == MatterTool.Fire;
         for (int i = 0; i < 5; i++)
         {
             var simPoint = WorldCoordinates.ToSimulation(point);
             if (!simulation.ContainsWorldPosition(simPoint))
                 return false;
-            float surface = toWaterSurface && simulation.SampleWater(simPoint) > 0.001f
+            float surface = !fireTargetsTerrain && simulation.SampleWater(simPoint) > WetThreshold
                 ? simulation.SampleSurface(simPoint)
                 : simulation.SampleTerrain(simPoint);
             t = (origin.Y - surface) / -direction.Y;

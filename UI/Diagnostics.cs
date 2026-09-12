@@ -54,8 +54,8 @@ public partial class Diagnostics : CanvasLayer
         // Unity OnGUI controls strip, kept verbatim.
         controls = new Label
         {
-            Text = "1 EARTH   2 WATER   3 FIRE   4 LIGHTNING   LEFT SCOOP / HOLD-STRIKE   RIGHT DROP\n" +
-                   "WASD MOVE   Q/E ROTATE   ↑/↓ TILT   WHEEL ZOOM   F FOCUS   R RESET   SPACE PAUSE   N STEP   F1 METRICS"
+            Text = "GOD HAND: LEFT-HOLD SCOOPS WHAT'S UNDER IT (WATER OVER WATER, EARTH ON LAND) · RIGHT POURS WHAT YOU CARRY\n" +
+                   "1/2 MATTER HAND   3 FIRE   4 LIGHTNING   WASD MOVE   Q/E ROTATE   ↑/↓ TILT   WHEEL ZOOM   F FOCUS   R RESET   SPACE PAUSE   N STEP   F1 METRICS"
         };
         controls.AddThemeFontSizeOverride("font_size", 13);
         controls.AddThemeColorOverride("font_color", new Color(.70f, .74f, .68f));
@@ -111,7 +111,7 @@ public partial class Diagnostics : CanvasLayer
         var metrics = sim.CalculateMetrics();
         state.Text = sim.LastError != null ? "FAULT · " + sim.LastError : sim.Paused ? "PAUSED" : "●  SIMULATION RUNNING";
         state.AddThemeColorOverride("font_color", sim.LastError != null ? Colors.OrangeRed : new Color(.63f, .85f, .60f));
-        Snapshot = $"Tool  {cursor?.SelectedTool} · target {cursor?.HasTarget}\n" +
+        Snapshot = $"Hand  {cursor?.SelectedTool} · carrying {cursor?.CarriedMatter} · target {cursor?.HasTarget}\n" +
             $"Cam  {camera?.DebugState}\n" +
             $"Grid  {sim.Resolution} × {sim.Resolution} · {sim.WorldSize:0} m\n" +
             $"Water step  {sim.StepCount} · Fire step  {fire.StepCount}\n\n" +
