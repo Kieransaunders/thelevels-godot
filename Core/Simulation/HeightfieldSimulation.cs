@@ -61,6 +61,12 @@ namespace TheLevels.Core.Simulation
         public float FixedStep => config.SimulationStep;
         public float LastStepMilliseconds { get; private set; }
         public float MaxWaterSpeed { get; private set; }
+        /// <summary>
+        /// Cumulative water volume (m³) this run lost to the dry threshold and to
+        /// negative-value clamps — a read-only diagnostic for mass reconciliation,
+        /// the same class of additive exception as FlowSpeed. Cleared on reset.
+        /// </summary>
+        public double WaterLossVolume { get; private set; }
         public int NegativeCorrections { get; private set; }
         public int InvalidValueCount { get; private set; }
         public int HeightClampCount { get; private set; }
@@ -121,6 +127,7 @@ namespace TheLevels.Core.Simulation
             HeightClampCount = 0;
             LastStepMilliseconds = 0f;
             MaxWaterSpeed = 0f;
+            WaterLossVolume = 0d;
             LastError = null;
             Paused = false;
             StateChanged?.Invoke();
@@ -376,6 +383,9 @@ namespace TheLevels.Core.Simulation
             }
 
             bool changed = false;
+            // Symmetric flux transfers cancel in this sum, so it converges on the
+            // clamp/discard adjustments — the water the step destroyed (≤ 0).
+            double massDelta = 0d;
             for (int i = 0; i < water.Length; i++)
             {
                 float next = water[i] + delta[i];
@@ -400,8 +410,11 @@ namespace TheLevels.Core.Simulation
                 if (next == 0f)
                     velX[i] = velZ[i] = 0f; // don't let a dried cell carry stale momentum
                 changed |= !SimulationMath.Approximately(next, water[i]);
+                massDelta += next - water[i];
                 water[i] = next;
             }
+            if (massDelta < 0d)
+                WaterLossVolume += -massDelta * CellArea;
 
             float peak = 0f;
             for (int i = 0; i < water.Length; i++)

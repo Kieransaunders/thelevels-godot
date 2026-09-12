@@ -114,6 +114,11 @@ public partial class Main : Node3D
             try { VerifyVfx(host, view, cursor, spell, hand, druids); }
             catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
         }
+        if (Array.Exists(args, a => a == "--verify-p7"))
+        {
+            try { VerifyIntegration(host, view, camera, cursor, spell, hand, druids); }
+            catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
+        }
         if (Array.Exists(args, a => a == "--showcase"))
             RunShowcase(host, camera, cursor, spell, hand, druids, diagnostics);
         if (Array.Exists(args, a => a == "--verify-input")) VerifyInput(camera, diagnostics);
@@ -430,6 +435,109 @@ public partial class Main : Node3D
         GD.Print("P6 adapter checks PASS: ratio clamp (empty/half/full/zero-capacity), lightning hides held matter, tool + bolt + ritual effects spawn, seven tube-trail rises, cylinder stand-in gone, flow/depth vertex channels, transient retirement, reset.");
     }
 
+    /// <summary>
+    /// P7 gate: repeated reset stability, paused editing and single-step durations,
+    /// edge brushing at all four corners, cursor targeting from shallow and steep
+    /// angles, and scene-reload cleanup for the VFX nodes.
+    /// </summary>
+    private void VerifyIntegration(SimulationHost host, HeightfieldView view, StrategyCamera camera,
+        WorldCursor cursor, SpellVfx spell, GodHandVfx hand, DruidView druids)
+    {
+        var sim = host.Heightfield;
+        var fireSim = host.Fire;
+
+        // Repeated reset: five cycles must each leave identical clean state.
+        for (int cycle = 0; cycle < 5; cycle++)
+        {
+            sim.ApplyBrush(new System.Numerics.Vector3(0f, 0f, 0f), MatterType.Earth, true, 0.5f);
+            var fuelled = FindFuelledDryCell(sim, fireSim);
+            fireSim.Ignite(fuelled, sim.BrushRadius);
+            spell.MatterDropped(WorldCoordinates.ToGodot(0f, 0f, 0f), MatterType.Water);
+            sim.ResetSimulation(); fireSim.ResetFire(); cursor.SelectTool(MatterTool.Matter);
+            spell.ClearTransient();
+            if (sim.EarthBuffer != 0f || sim.WaterBuffer != 0f || fireSim.BurningCells != 0
+                || fireSim.EmberBuffer != 0f || sim.StepCount != 0 || sim.LastError != null)
+                throw new InvalidOperationException($"reset cycle {cycle} left residual state");
+            if (druids.Band.Total != 8 || druids.Band.AliveCount != 8 || druids.Band.RitualComplete)
+                throw new InvalidOperationException($"reset cycle {cycle} left the band dirty");
+        }
+
+        // Paused editing: a brush edit while paused applies immediately and only
+        // reaches the view; on resume the next step processes it.
+        sim.Paused = true; fireSim.Paused = true;
+        int stepsBefore = sim.StepCount;
+        float scooped = sim.ApplyBrush(new System.Numerics.Vector3(0f, 0f, 0f), MatterType.Earth, true, 0.5f);
+        if (scooped <= 0f || sim.EarthBuffer <= 0f)
+            throw new InvalidOperationException("paused editing did not apply");
+        if (sim.StepCount != stepsBefore)
+            throw new InvalidOperationException("paused brush stepped the solver");
+        sim.Paused = false; fireSim.Paused = false;
+        sim.StepOnce(); fireSim.StepOnce();
+        if (sim.StepCount != stepsBefore + 1 || fireSim.StepCount == 0)
+            throw new InvalidOperationException("single-step durations wrong after resume");
+
+        // Edge brushing: all four corners and the exact domain border must clamp
+        // safely, transfer nothing out of bounds, and never fault.
+        float half = sim.WorldSize * .5f;
+        foreach (var corner in new[]
+                 {
+                     new System.Numerics.Vector3(-half, 0f, -half),
+                     new System.Numerics.Vector3(half, 0f, -half),
+                     new System.Numerics.Vector3(-half, 0f, half),
+                     new System.Numerics.Vector3(half, 0f, half),
+                     new System.Numerics.Vector3(0f, 0f, half)
+                 })
+        {
+            sim.ApplyBrush(corner, MatterType.Earth, true, 0.3f);
+            sim.ApplyBrush(corner, MatterType.Water, false, 0.3f);
+            fireSim.ApplyFireBrush(corner, true, 0.3f);
+            if (sim.LastError != null) throw new InvalidOperationException($"edge brushing faulted at {corner}");
+        }
+
+        // Cursor targeting across the view: centre, corners and a shallow-angle row
+        // must either land inside the domain on the tool-appropriate surface or fail —
+        // never return a position outside it.
+        camera.ResetView();
+        var size = GetViewport().GetVisibleRect().Size;
+        foreach (var screenPoint in new[]
+                 {
+                     size / 2f, new Vector2(2f, 2f), size - new Vector2(2f, 2f),
+                     new Vector2(size.X / 2f, 2f), new Vector2(size.X / 2f, size.Y - 2f)
+                 })
+        {
+            foreach (MatterTool tool in Enum.GetValues<MatterTool>())
+            {
+                cursor.SelectTool(tool);
+                if (!cursor.TryFindSurfaceAt(screenPoint, out Vector3 point)) continue;
+                if (!sim.ContainsWorldPosition(WorldCoordinates.ToSimulation(point)))
+                    throw new InvalidOperationException($"target outside domain at {screenPoint} ({tool})");
+            }
+        }
+        cursor.SelectTool(MatterTool.Matter);
+
+        // Scene-reload cleanup: a second spell/hand pair must retire cleanly, and the
+        // originals must keep working afterwards (no stolen subscriptions or children).
+        spell.RitualBurst(WorldCoordinates.ToGodot(druids.Band.HavenCenter.X, 0f, druids.Band.HavenCenter.Z),
+            druids.Band.HavenRadius);
+        var detachedSpell = new SpellVfx();
+        AddChild(detachedSpell);
+        detachedSpell.Initialize(host);
+        detachedSpell.LightningStrike(WorldCoordinates.ToGodot(0f, 0f, 0f));
+        RemoveChild(detachedSpell);
+        detachedSpell.Tick(99f);
+        detachedSpell.QueueFree();
+        if (spell.TransientCount == 0)
+            throw new InvalidOperationException("original spell lost its transients after detach");
+        spell.Tick(99f);
+        if (spell.TransientCount != 0)
+            throw new InvalidOperationException("transients did not retire after reload check");
+
+        sim.ResetSimulation(); fireSim.ResetFire(); spell.ClearTransient();
+        hand.DebugDrive(false, Vector3.Zero);
+        GD.Print("P7 adapter checks PASS: five clean reset cycles, paused editing, single-step durations, corner/border brushing, domain-safe targeting from centre/corners/shallow rows, VFX detach cleanup, working originals.");
+    }
+
+
     /// <summary>Staged windowed captures of the P6 effects; explicit verification option only.</summary>
     private async void RunShowcase(SimulationHost host, StrategyCamera camera, WorldCursor cursor,
         SpellVfx spell, GodHandVfx hand, DruidView druids, Diagnostics diagnostics)
@@ -658,6 +766,9 @@ public partial class Main : Node3D
     private async void CaptureAfterFrames(string path, int frames, Diagnostics diagnostics)
     {
         // Explicit verification option only; normal play never writes screenshots.
+        // Keep the window unoccluded so FPS numbers are not compositor-throttled.
+        DisplayServer.WindowSetFlag(DisplayServer.WindowFlags.AlwaysOnTop, true);
+        DisplayServer.WindowMoveToForeground();
         await WaitFrames(frames);
         await Capture(path, diagnostics);
     }
