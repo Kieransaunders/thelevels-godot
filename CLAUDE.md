@@ -7,8 +7,9 @@ do not develop in it.
 
 ## Verification gate
 
-`./verify.sh` — build, `dotnet test` (NUnit, 26 tests), headless import,
-headless run with the `--verify-p3` / `--verify-p4` adapter checks. It must
+`./verify.sh` — build, `dotnet test` (NUnit, 32 tests), headless import,
+headless run with the `--verify-p3` / `--verify-p4` / `--verify-p5` adapter
+checks. It must
 pass before any commit. `--verify-input` additionally drives a synthesized
 keypress through the Input Map and asserts the camera moves.
 
