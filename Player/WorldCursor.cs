@@ -22,6 +22,9 @@ public enum MatterTool
 /// </summary>
 public partial class WorldCursor : Node3D
 {
+    /// <summary>R reset, for listeners that own state outside the two simulations.</summary>
+    public event System.Action WorldReset;
+
     private SimulationHost host;
     private StrategyCamera camera;
     private HeightfieldSimulation simulation;
@@ -147,6 +150,7 @@ public partial class WorldCursor : Node3D
             simulation.ResetSimulation();
             fire.ResetFire();
             camera.ResetView();
+            WorldReset?.Invoke();
         }
         if (Input.IsActionJustPressed(InputBindings.TogglePause))
         {

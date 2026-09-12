@@ -1,4 +1,5 @@
 using Godot;
+using TheLevels.Agents;
 using TheLevels.Player;
 using TheLevels.Simulation;
 using TheLevels.View;
@@ -10,6 +11,7 @@ public partial class Diagnostics : CanvasLayer
     private SimulationHost host;
     private HeightfieldView view;
     private WorldCursor cursor;
+    private DruidView druids;
     private StrategyCamera camera;
     private Label body;
     private Label state;
@@ -19,9 +21,9 @@ public partial class Diagnostics : CanvasLayer
     private bool visible = true;
     public string Snapshot { get; private set; } = "";
 
-    public void Initialize(SimulationHost simulationHost, HeightfieldView heightfieldView, WorldCursor worldCursor)
+    public void Initialize(SimulationHost simulationHost, HeightfieldView heightfieldView, WorldCursor worldCursor, DruidView druidView)
     {
-        host = simulationHost; view = heightfieldView; cursor = worldCursor;
+        host = simulationHost; view = heightfieldView; cursor = worldCursor; druids = druidView;
         camera = worldCursor.GetParent().GetNodeOrNull<StrategyCamera>("WorldCamera");
         ProcessPriority = 200;
         panel = new PanelContainer { Position = new Vector2(24, 24), CustomMinimumSize = new Vector2(276, 0) };
@@ -118,7 +120,8 @@ public partial class Diagnostics : CanvasLayer
             $"Earth in world   {metrics.TerrainVolume:N1} m³\nWater in world   {metrics.WaterVolume:N1} m³\n" +
             $"Wet cells   {metrics.WetCells:N0}\nDeepest water   {metrics.MaximumWaterDepth:0.000} m\nPeak speed   {sim.MaxWaterSpeed:0.000} m/s\n\n" +
             $"Earth held   {sim.EarthBuffer:0.0} / {sim.EarthCapacity:0} m³\nWater held   {sim.WaterBuffer:0.0} / {sim.WaterCapacity:0} m³\nEmbers held   {fire.EmberBuffer:0.0} / {fire.EmberCapacity:0}\n" +
-            $"Burning   {fire.BurningCells} · Charred   {fire.CharredCells}\n\n" +
+            $"Burning   {fire.BurningCells} · Charred   {fire.CharredCells}\n" +
+            $"Druids   {druids?.Band.AliveCount} / {druids?.Band.Total} alive · ritual {(druids?.Band.RitualComplete == true ? "complete" : "pending")}\n\n" +
             $"Water step   {sim.LastStepMilliseconds:0.00} ms\nFire tick   {host.LastFireAdvanceMilliseconds:0.00} ms\nMesh update   {view.LastUpdateMilliseconds:0.00} ms\nFPS   {Engine.GetFramesPerSecond()}\n\n" +
             $"Corrections   {sim.NegativeCorrections}\nInvalid values   {sim.InvalidValueCount}\nHeight clamps   {sim.HeightClampCount}";
         body.Text = Snapshot;
