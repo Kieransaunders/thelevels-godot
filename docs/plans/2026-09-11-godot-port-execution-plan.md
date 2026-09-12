@@ -224,7 +224,7 @@ For each phase record: source baseline, changed files, commands and results, sce
 - [x] P2: original nine fire tests and documented source edge cases. Completed 2026-09-11 (commit af62019): 26/26 green, original suite 14/14 with unchanged assertions. Source edge cases characterized in docs/verification: RNG not reseeded by ResetFire; ember-drop budget overshoot (≤0.5 units) preserved.
 - [x] P3: terrain, water, fire rendering and live diagnostics. Completed 2026-09-11 (commit c1a5e50): --verify-p3 adapter gate green (dirty-only rebuild, independent sim events, winding/normals/alpha, detach cleanup); windowed runs at ~80 FPS with 0 corrections; screenshots in docs/verification/.
 - [x] P4: camera, targeting, four tools and global controls. Completed 2026-09-11 (commit 72bbc32): --verify-p4 adapter gate green (tool switching, terrain vs water-surface targeting, brush accounting, lightning kindle/cooldown/water-boiling, pause+single-step, reset); interactive camera with Unity start view; screenshot with terrain-following ring recorded.
-- [x] P5: druid behaviour, haven, deaths and ritual completion.
+- [x] P5: druid behaviour, haven, deaths and ritual completion. Completed 2026-09-12 (commit 7770c4f, gate additions f12c273): 34/34 green, --verify-p5 adapter gate green (eight druids, seven stones, walking while paused, haven-ward travel, reset respawn). Exit-gate scenarios covered headlessly except the visual haven check; evidence: docs/verification/2026-09-11-p0.md §P5 and 2026-09-12-p5-druids.png. Accepted deviation: no druid.tscn — nodes are built in code like the rest of the port.
 - [ ] P6: native tool/ritual VFX and permitted asset provenance.
 - [ ] P7: standalone verification, soak, profiling and release evidence.
 
