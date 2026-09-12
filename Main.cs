@@ -26,26 +26,43 @@ public partial class Main : Node3D
             Sky = new Sky { SkyMaterial = new ProceduralSkyMaterial
             {
                 SkyTopColor = new Color(.36f, .52f, .68f),
-                SkyHorizonColor = new Color(.78f, .80f, .74f),
-                GroundHorizonColor = new Color(.62f, .62f, .56f),
+                SkyHorizonColor = new Color(.84f, .76f, .66f),
+                GroundHorizonColor = new Color(.70f, .66f, .58f),
                 GroundBottomColor = new Color(.30f, .32f, .28f),
                 SunAngleMax = 24f
             } },
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
             AmbientLightColor = new Color(.72f, .79f, .82f),
-            AmbientLightEnergy = .65f,
-            TonemapMode = Godot.Environment.ToneMapper.Linear,
+            AmbientLightEnergy = .32f,
+            // AgX keeps the burning-reed emissives and water speculars from hue-shifting
+            // to white the way ACES does; Filmic is the fallback if the palette mutes.
+            TonemapMode = Godot.Environment.ToneMapper.Agx,
+            TonemapExposure = 1.05f,
             FogEnabled = true,
-            FogLightColor = new Color(.55f, .62f, .59f),
-            FogDensity = .0007f,
-            FogSkyAffect = 0f
+            FogLightColor = new Color(.74f, .70f, .65f),
+            FogDensity = .0012f,
+            FogAerialPerspective = .15f,
+            FogSkyAffect = .1f,
+            SsaoEnabled = true,
+            SsaoRadius = 2f,
+            SsaoIntensity = 1.5f,
+            GlowEnabled = true,
+            GlowIntensity = .5f,
+            GlowHdrThreshold = 1.2f,
+            // AgX is honest but desaturating; lift saturation back toward the concept art.
+            AdjustmentEnabled = true,
+            AdjustmentSaturation = 1.2f,
+            AdjustmentContrast = 1.05f
         };
         AddChild(new WorldEnvironment { Name = "WetlandEnvironment", Environment = environment });
-        AddChild(new DirectionalLight3D
+        var sun = new DirectionalLight3D
         {
-            Name = "MorningSun", RotationDegrees = new Vector3(-46, -32, 0),
-            LightColor = new Color(1, .82f, .59f), LightEnergy = 1.15f, ShadowEnabled = true
-        });
+            Name = "MorningSun", RotationDegrees = new Vector3(-28, -32, 0),
+            LightColor = new Color(1, .82f, .59f), LightEnergy = 1.3f, ShadowEnabled = true,
+            ShadowBlur = 1.5f, DirectionalShadowBlendSplits = true, DirectionalShadowMaxDistance = 150f
+        };
+        AddChild(sun);
+        view.SetSunDirection(sun.GlobalTransform.Basis.Z);
 
         var camera = new StrategyCamera { Name = "WorldCamera" };
         AddChild(camera);

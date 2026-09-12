@@ -26,10 +26,17 @@ public partial class HeightfieldView : Node3D
     public int FireEvents { get; private set; }
     public bool IsDirty => dirty;
 
-    private static readonly Color Peat = new(.16f, .10f, .055f);
-    private static readonly Color Clay = new(.34f, .23f, .13f);
-    private static readonly Color Moss = new(.23f, .31f, .12f);
-    private static readonly Color Tor = new(.38f, .42f, .24f);
+    // Hard elevation bands after the Somerset concept art: dark peat lowlands, warm
+    // clay, deep moss, dry bracken, grey limestone tor. Values sit well below their
+    // displayed brightness — ambient, AgX midtone lift and fog raise them ~2.5×.
+    private static readonly Color Peat = new(.08f, .055f, .035f);
+    private static readonly Color Clay = new(.15f, .10f, .06f);
+    private static readonly Color Moss = new(.09f, .14f, .05f);
+    private static readonly Color Bracken = new(.16f, .13f, .07f);
+    private static readonly Color Tor = new(.17f, .165f, .15f);
+    private static readonly Color WetSheen = new(.10f, .13f, .11f);
+    private static readonly (float Edge, Color Ground)[] Bands =
+        { (0f, Peat), (.16f, Clay), (.34f, Moss), (.56f, Bracken), (.82f, Tor) };
     private static readonly Color Reeds = new(.38f, .46f, .15f);
     private static readonly Color Charcoal = new(.055f, .045f, .04f);
     private static readonly Color FlameLow = new(.85f, .22f, .04f);
@@ -98,11 +105,12 @@ public partial class HeightfieldView : Node3D
             terrainVertices[i].Y = height;
             waterVertices[i].Y = height + Mathf.Max(depth, .015f);
             float elevation = Mathf.Clamp((height - .2f) / 11.8f, 0, 1);
-            Color ground = elevation < .15f ? Peat.Lerp(Clay, elevation / .15f)
-                : elevation < .45f ? Clay.Lerp(Moss, (elevation - .15f) / .30f)
-                : Moss.Lerp(Tor, Mathf.Clamp((elevation - .45f) / .55f, 0, 1));
-            if (depth > .001f) ground = ground.Lerp(new Color(.12f, .16f, .12f), .35f);
-            ground = ground.Lerp(Reeds, fire.GetFuel(x, z) * .55f);
+            Color ground = Palette(elevation);
+            ground = ground.Lerp(WetSheen, Mathf.Clamp(depth * 3f, 0f, 1f) * .45f);
+            // Reeds golden the low wet ground only; on the hills the tint erased the
+            // elevation bands and painted the whole map sand-coloured.
+            float reed = fire.GetFuel(x, z) * Mathf.Clamp(1f - elevation * 1.4f, 0f, 1f);
+            ground = ground.Lerp(Reeds, reed * .4f);
             if (fire.GetCharred(x, z)) ground = Charcoal.Lerp(ground, .12f);
             float flame = fire.GetFire(x, z);
             if (flame > 0) ground = ground.Lerp(FlameLow.Lerp(FlameHigh, flame), .92f);
@@ -115,6 +123,25 @@ public partial class HeightfieldView : Node3D
         dirty = false;
         RebuildCount++;
         LastUpdateMilliseconds = watch.Elapsed.TotalMilliseconds;
+    }
+
+    /// <summary>Points the water shader's analytic light at the scene sun.</summary>
+    public void SetSunDirection(Vector3 direction) =>
+        waterMaterial.SetShaderParameter("light_direction", direction);
+
+    private static Color Palette(float elevation)
+    {
+        const float blend = .04f;
+        for (int b = 0; b < Bands.Length - 1; b++)
+        {
+            float edge = Bands[b + 1].Edge;
+            if (elevation < edge + blend)
+            {
+                float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp((elevation - (edge - blend)) / (blend * 2f), 0f, 1f));
+                return Bands[b].Ground.Lerp(Bands[b + 1].Ground, t);
+            }
+        }
+        return Bands[^1].Ground;
     }
 
     private void Upload(ArrayMesh mesh, Godot.Collections.Array arrays, Vector3[] vertices, Vector3[] normals, Color[] colors, Material material)
