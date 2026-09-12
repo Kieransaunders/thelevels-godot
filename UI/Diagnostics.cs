@@ -10,6 +10,7 @@ public partial class Diagnostics : CanvasLayer
     private SimulationHost host;
     private HeightfieldView view;
     private WorldCursor cursor;
+    private StrategyCamera camera;
     private Label body;
     private Label state;
     private Label controls;
@@ -21,6 +22,7 @@ public partial class Diagnostics : CanvasLayer
     public void Initialize(SimulationHost simulationHost, HeightfieldView heightfieldView, WorldCursor worldCursor)
     {
         host = simulationHost; view = heightfieldView; cursor = worldCursor;
+        camera = worldCursor.GetParent().GetNodeOrNull<StrategyCamera>("WorldCamera");
         ProcessPriority = 200;
         panel = new PanelContainer { Position = new Vector2(24, 24), CustomMinimumSize = new Vector2(276, 0) };
         var style = new StyleBoxFlat
@@ -109,7 +111,8 @@ public partial class Diagnostics : CanvasLayer
         var metrics = sim.CalculateMetrics();
         state.Text = sim.LastError != null ? "FAULT · " + sim.LastError : sim.Paused ? "PAUSED" : "●  SIMULATION RUNNING";
         state.AddThemeColorOverride("font_color", sim.LastError != null ? Colors.OrangeRed : new Color(.63f, .85f, .60f));
-        Snapshot = $"Tool  {cursor?.SelectedTool}\n" +
+        Snapshot = $"Tool  {cursor?.SelectedTool} · target {cursor?.HasTarget}\n" +
+            $"Cam  {camera?.DebugState}\n" +
             $"Grid  {sim.Resolution} × {sim.Resolution} · {sim.WorldSize:0} m\n" +
             $"Water step  {sim.StepCount} · Fire step  {fire.StepCount}\n\n" +
             $"Earth in world   {metrics.TerrainVolume:N1} m³\nWater in world   {metrics.WaterVolume:N1} m³\n" +

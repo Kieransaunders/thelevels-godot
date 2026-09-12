@@ -22,8 +22,15 @@ public partial class Main : Node3D
 
         var environment = new Godot.Environment
         {
-            BackgroundMode = Godot.Environment.BGMode.Color,
-            BackgroundColor = new Color(.12f, .17f, .18f),
+            BackgroundMode = Godot.Environment.BGMode.Sky,
+            Sky = new Sky { SkyMaterial = new ProceduralSkyMaterial
+            {
+                SkyTopColor = new Color(.36f, .52f, .68f),
+                SkyHorizonColor = new Color(.78f, .80f, .74f),
+                GroundHorizonColor = new Color(.62f, .62f, .56f),
+                GroundBottomColor = new Color(.30f, .32f, .28f),
+                SunAngleMax = 24f
+            } },
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
             AmbientLightColor = new Color(.72f, .79f, .82f),
             AmbientLightEnergy = .65f,
@@ -62,6 +69,7 @@ public partial class Main : Node3D
             try { VerifyCursor(host, camera, cursor); }
             catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
         }
+        if (Array.Exists(args, a => a == "--verify-input")) VerifyInput(camera, diagnostics);
         foreach (string arg in args)
             if (arg.StartsWith("--capture=")) CaptureAfterFrames(arg.Substring("--capture=".Length), diagnostics);
     }
@@ -228,6 +236,20 @@ public partial class Main : Node3D
             if (interior) return new System.Numerics.Vector3(x * sim.CellSize - half, 0, z * sim.CellSize - half);
         }
         return new System.Numerics.Vector3(0, 0, -1f);
+    }
+
+    /// <summary>Drives a synthesized W keypress through the Input Map and checks the camera moves.</summary>
+    private async void VerifyInput(StrategyCamera camera, Diagnostics diagnostics)
+    {
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        string before = camera.DebugState;
+        Input.ParseInputEvent(new InputEventKey { Keycode = Key.W, PhysicalKeycode = Key.W, Pressed = true });
+        for (int i = 0; i < 10; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        string after = camera.DebugState;
+        Input.ParseInputEvent(new InputEventKey { Keycode = Key.W, PhysicalKeycode = Key.W, Pressed = false });
+        GD.Print($"INPUT CHECK  pressed={Input.IsActionPressed(InputBindings.CamForward)}  before[{before}]  after[{after}]  moved={before != after}");
+        GD.Print(diagnostics.Snapshot);
+        GetTree().Quit(before != after ? 0 : 1);
     }
 
     private async void CaptureAfterFrames(string path, Diagnostics diagnostics)

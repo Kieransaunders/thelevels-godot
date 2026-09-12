@@ -18,7 +18,7 @@ public partial class StrategyCamera : Camera3D
     private const float ZoomPerNotch = ZoomSpeed * 0.01f * 5f;
 
     private System.Numerics.Vector3 focus = new(0f, 2.5f, 0f);
-    private float distance = 72f;
+    private float distance = 104f;
     private float yaw = -35f;
     private float pitch = 52f;
 
@@ -42,7 +42,7 @@ public partial class StrategyCamera : Camera3D
         // Unity: right and forward rotated by yaw around Y (sim space).
         var right = new System.Numerics.Vector3(MathF.Cos(yaw * MathF.PI / 180f), 0f, -MathF.Sin(yaw * MathF.PI / 180f));
         var forward = new System.Numerics.Vector3(MathF.Sin(yaw * MathF.PI / 180f), 0f, MathF.Cos(yaw * MathF.PI / 180f));
-        focus += (right * moveX + forward * moveY) * (PanSpeed * dt * distance / 72f);
+        focus += (right * moveX + forward * moveY) * (PanSpeed * dt * distance / 104f);
 
         if (Input.IsActionPressed(InputBindings.CamRotateCcw)) yaw -= RotateSpeed * dt;
         if (Input.IsActionPressed(InputBindings.CamRotateCw)) yaw += RotateSpeed * dt;
@@ -59,11 +59,13 @@ public partial class StrategyCamera : Camera3D
         if (@event is InputEventMouseButton { Pressed: true } button)
         {
             if (button.ButtonIndex == MouseButton.WheelUp)
-                distance = Math.Clamp(distance - ZoomPerNotch, 24f, 115f);
+                distance = Math.Clamp(distance - ZoomPerNotch, 24f, 150f);
             else if (button.ButtonIndex == MouseButton.WheelDown)
-                distance = Math.Clamp(distance + ZoomPerNotch, 24f, 115f);
+                distance = Math.Clamp(distance + ZoomPerNotch, 24f, 150f);
         }
     }
+
+    public string DebugState => $"focus {focus.X:0.0},{focus.Z:0.0}  dist {distance:0}  yaw {yaw:0}";
 
     public void Focus(Vector3 worldPoint)
     {
@@ -75,7 +77,7 @@ public partial class StrategyCamera : Camera3D
     public void ResetView()
     {
         focus = new System.Numerics.Vector3(0f, 2.5f, 0f);
-        distance = 72f;
+        distance = 104f;
         yaw = -35f;
         pitch = 52f;
         ApplyView();

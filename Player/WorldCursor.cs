@@ -37,6 +37,8 @@ public partial class WorldCursor : Node3D
     private Vector3 cursorPosition;
     private bool hasTarget;
     private float strikeCooldownRemaining;
+    // Set when a held brush transferred nothing this frame (buffer full/empty, dry water).
+    private bool brushIdle;
 
     private const float StrikeCooldown = 1.4f;
     private const int RingSegments = 64;
@@ -92,15 +94,16 @@ public partial class WorldCursor : Node3D
         bool dropping = Input.IsActionPressed(InputBindings.Drop);
         var simPoint = WorldCoordinates.ToSimulation(cursorPosition);
 
+        brushIdle = false;
         switch (SelectedTool)
         {
             case MatterTool.Earth:
-                if (scooping) simulation.ApplyBrush(simPoint, MatterType.Earth, true, dt);
-                if (dropping) simulation.ApplyBrush(simPoint, MatterType.Earth, false, dt);
+                if (scooping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Earth, true, dt) <= 0f;
+                if (dropping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Earth, false, dt) <= 0f;
                 break;
             case MatterTool.Water:
-                if (scooping) simulation.ApplyBrush(simPoint, MatterType.Water, true, dt);
-                if (dropping) simulation.ApplyBrush(simPoint, MatterType.Water, false, dt);
+                if (scooping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Water, true, dt) <= 0f;
+                if (dropping) brushIdle = simulation.ApplyBrush(simPoint, MatterType.Water, false, dt) <= 0f;
                 break;
             case MatterTool.Fire:
                 if (scooping) fire.ApplyFireBrush(simPoint, true, dt);
@@ -200,6 +203,10 @@ public partial class WorldCursor : Node3D
 
     private Color RingColor()
     {
+        // A held brush that moves nothing (buffer full or empty, dry ground under the
+        // water tool) looks identical to a broken click otherwise.
+        if (brushIdle) return new Color(.55f, .55f, .52f, .75f);
+
         if (SelectedTool == MatterTool.Lightning)
         {
             float pulse = 0.7f + 0.3f * MathF.Sin((float)Time.GetUnixTimeFromSystem() * 9f);
@@ -260,6 +267,7 @@ public partial class WorldCursor : Node3D
 
     private void UpdateRing()
     {
+        ringMesh.ClearSurfaces();
         ringMesh.SurfaceBegin(Mesh.PrimitiveType.LineStrip, ringMaterial);
         for (int i = 0; i <= RingSegments; i++)
         {
