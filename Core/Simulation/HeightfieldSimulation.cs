@@ -148,6 +148,24 @@ namespace TheLevels.Core.Simulation
         public float GetTerrain(int x, int z) => terrain[Index(x, z)];
         public float GetWater(int x, int z) => water[Index(x, z)];
 
+        /// <summary>
+        /// Mean flow speed (m/s) over the four staggered solver edges around a cell —
+        /// a read-only presentation accessor for whitewater, not a solver input. Edges
+        /// past the domain border count as zero (they are reflective in the solver).
+        /// </summary>
+        public float FlowSpeed(int x, int z)
+        {
+            float vx = 0f, vz = 0f, edges = 0f;
+            if (x > 0) { vx += velX[Index(x - 1, z)]; edges++; }
+            if (x < Resolution - 1) { vx += velX[Index(x, z)]; edges++; }
+            if (z > 0) { vz += velZ[Index(x, z - 1)]; edges++; }
+            if (z < Resolution - 1) { vz += velZ[Index(x, z)]; edges++; }
+            if (edges == 0f) return 0f;
+            vx /= edges;
+            vz /= edges;
+            return SimulationMath.Sqrt(vx * vx + vz * vz);
+        }
+
         public float ApplyBrush(Vector3 worldPosition, MatterType matter, bool scoop, float deltaTime)
         {
             if (!ContainsWorldPosition(worldPosition) || deltaTime <= 0f)

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using TheLevels.Core.Agents;
 using TheLevels.Simulation;
 using TheLevels.View;
+using TheLevels.Vfx;
 
 namespace TheLevels.Agents;
 
@@ -19,6 +20,9 @@ public partial class DruidView : Node3D
     private DruidManager band;
     private Node3D bodies;
     private readonly List<Node3D> figures = new();
+
+    /// <summary>Native P6 ritual effect; null keeps the view testable without visuals.</summary>
+    public SpellVfx Spell { get; set; }
 
     public DruidManager Band => band;
 
@@ -153,6 +157,7 @@ public partial class DruidView : Node3D
 
     private void OnRitualCompleted()
     {
+        Spell?.RitualBurst(WorldCoordinates.ToGodot(band.HavenCenter.X, 0f, band.HavenCenter.Z), band.HavenRadius);
         GD.Print("The druids complete their ritual at the stones. The Levels are blessed.");
     }
 }

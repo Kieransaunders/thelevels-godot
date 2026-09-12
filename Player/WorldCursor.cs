@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using TheLevels.Core.Simulation;
 using TheLevels.Simulation;
 using TheLevels.View;
+using TheLevels.Vfx;
 
 namespace TheLevels.Player;
 
@@ -33,7 +34,9 @@ public partial class WorldCursor : Node3D
     private MeshInstance3D ring;
     private ImmediateMesh ringMesh;
     private ShaderMaterial ringMaterial;
-    private readonly List<(MeshInstance3D node, float ttl)> flashes = new();
+
+    /// <summary>Native P6 tool effects; null keeps the cursor testable without visuals.</summary>
+    public SpellVfx Spell { get; set; }
 
     private Vector3 cursorPosition;
     private bool hasTarget;
@@ -45,7 +48,6 @@ public partial class WorldCursor : Node3D
     private const float StrikeCooldown = 1.4f;
     private const int RingSegments = 64;
     private const float RingLift = 0.16f;
-    private const float FlashLifetime = 0.35f;
     // Wetness above this reads as open water: the hand scoops water there, earth below it.
     private const float WetThreshold = 0.02f;
 
@@ -112,23 +114,40 @@ public partial class WorldCursor : Node3D
                 if (scooping)
                 {
                     float moved = simulation.ApplyBrush(simPoint, matter, true, dt);
-                    if (moved > 0f) carriedMatter = matter;
+                    if (moved > 0f)
+                    {
+                        carriedMatter = matter;
+                        Spell?.MatterScooped(cursorPosition, matter);
+                    }
                     brushIdle = moved <= 0f;
                 }
-                if (dropping) brushIdle = simulation.ApplyBrush(simPoint, carriedMatter, false, dt) <= 0f;
+                if (dropping)
+                {
+                    float poured = simulation.ApplyBrush(simPoint, carriedMatter, false, dt);
+                    brushIdle = poured <= 0f;
+                    if (poured > 0f) Spell?.MatterDropped(cursorPosition, carriedMatter);
+                }
                 break;
             }
             case MatterTool.Fire:
-                if (scooping) fire.ApplyFireBrush(simPoint, true, dt);
-                if (dropping) fire.ApplyFireBrush(simPoint, false, dt);
+            {
+                if (scooping)
+                {
+                    float gathered = fire.ApplyFireBrush(simPoint, true, dt);
+                    if (gathered > 0f) Spell?.EmberGathered(cursorPosition);
+                }
+                if (dropping)
+                {
+                    float kindled = fire.ApplyFireBrush(simPoint, false, dt);
+                    if (kindled > 0f) Spell?.EmberDropped(cursorPosition);
+                }
                 break;
+            }
             case MatterTool.Lightning:
                 if (scooping && strikeCooldownRemaining <= 0f)
                     StrikeAt(simPoint);
                 break;
         }
-
-        UpdateFlashes(dt);
     }
 
     public override void _ExitTree()
@@ -172,7 +191,7 @@ public partial class WorldCursor : Node3D
         // A bolt over open water boils a splash of it away.
         if (simulation.SampleWater(simPoint) > 0.05f)
             simulation.ApplyBrush(simPoint, MatterType.Water, true, 0.3f);
-        SpawnStrikeFlash(WorldCoordinates.ToGodot(simPoint.X, 0, simPoint.Z));
+        Spell?.LightningStrike(WorldCoordinates.ToGodot(simPoint.X, 0f, simPoint.Z));
         GD.Print(struck > 0
             ? $"Lightning kindles {struck} cells of the reeds."
             : "Lightning hisses out on the wet ground.");
@@ -183,38 +202,6 @@ public partial class WorldCursor : Node3D
 
     /// <summary>Cooldown-only tick for headless verification (Update also does this).</summary>
     public void TickCooldown(float seconds) => strikeCooldownRemaining -= seconds;
-
-    private void SpawnStrikeFlash(Vector3 worldPoint)
-    {
-        // Lightweight P4 feedback: a fading bolt column; polished VFX land in P6.
-        var surface = simulation.SampleSurface(WorldCoordinates.ToSimulation(worldPoint));
-        var mesh = new CylinderMesh { TopRadius = simulation.BrushRadius * 0.34f, BottomRadius = simulation.BrushRadius * 0.34f, Height = 26f };
-        var material = new ShaderMaterial { Shader = GD.Load<Shader>("res://Shaders/unlit_color.gdshader") };
-        material.SetShaderParameter("albedo", new Color(0.85f, 0.80f, 1f, 0.85f));
-        mesh.Material = material;
-        var node = new MeshInstance3D { Mesh = mesh, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off };
-        node.Position = WorldCoordinates.ToGodot(worldPoint.X, surface + 13f, worldPoint.Z);
-        AddChild(node);
-        flashes.Add((node, FlashLifetime));
-    }
-
-    private void UpdateFlashes(float dt)
-    {
-        for (int i = flashes.Count - 1; i >= 0; i--)
-        {
-            var (node, ttl) = flashes[i];
-            float next = ttl - dt;
-            if (next <= 0f)
-            {
-                node.QueueFree();
-                flashes.RemoveAt(i);
-                continue;
-            }
-            if (node.Mesh is CylinderMesh cylinder && cylinder.Material is ShaderMaterial material)
-                material.SetShaderParameter("albedo", new Color(0.85f, 0.80f, 1f, 0.85f * next / FlashLifetime));
-            flashes[i] = (node, next);
-        }
-    }
 
     private Color RingColor()
     {

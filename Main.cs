@@ -6,6 +6,7 @@ using TheLevels.Core.Simulation;
 using TheLevels.Simulation;
 using TheLevels.UI;
 using TheLevels.View;
+using TheLevels.Vfx;
 
 namespace TheLevels;
 
@@ -79,6 +80,17 @@ public partial class Main : Node3D
         var diagnostics = new Diagnostics { Name = "Diagnostics" };
         AddChild(diagnostics);
         diagnostics.Initialize(host, view, cursor, druids);
+
+        var spell = new SpellVfx { Name = "SpellVfx" };
+        AddChild(spell);
+        spell.Initialize(host);
+        cursor.Spell = spell;
+        cursor.WorldReset += spell.ClearTransient;
+        var hand = new GodHandVfx { Name = "GodHand" };
+        AddChild(hand);
+        hand.Initialize(cursor, host);
+        druids.Spell = spell;
+
         GD.Print($"The Levels: {host.Heightfield.Resolution}² world ready; engine {Engine.GetVersionInfo()["string"]}");
 
         string[] args = OS.GetCmdlineUserArgs();
@@ -97,9 +109,28 @@ public partial class Main : Node3D
             try { VerifyDruids(host, druids); }
             catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
         }
+        if (Array.Exists(args, a => a == "--verify-p6"))
+        {
+            try { VerifyVfx(host, view, cursor, spell, hand, druids); }
+            catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
+        }
+        if (Array.Exists(args, a => a == "--showcase"))
+            RunShowcase(host, camera, cursor, spell, hand, druids, diagnostics);
         if (Array.Exists(args, a => a == "--verify-input")) VerifyInput(camera, diagnostics);
         foreach (string arg in args)
-            if (arg.StartsWith("--capture=")) CaptureAfterFrames(arg.Substring("--capture=".Length), diagnostics);
+            if (arg.StartsWith("--capture="))
+            {
+                // Path, optionally "@frames" — short waits catch transient spell effects.
+                string spec = arg.Substring("--capture=".Length);
+                int frames = 180;
+                int at = spec.IndexOf('@');
+                if (at >= 0)
+                {
+                    frames = int.Parse(spec[(at + 1)..]);
+                    spec = spec[..at];
+                }
+                CaptureAfterFrames(spec, frames, diagnostics);
+            }
     }
 
     private void VerifyView(SimulationHost host, HeightfieldView view, Diagnostics diagnostics)
@@ -263,6 +294,305 @@ public partial class Main : Node3D
         GD.Print("P5 adapter checks PASS: eight druids, seven stones, walking while paused, haven-ward travel, reset respawn.");
     }
 
+    /// <summary>
+    /// P6 gate: the god hand reads the real buffer fill (empty/half/full, zero-capacity
+    /// safe, hidden for lightning), every tool and the ritual spawn native effects, the
+    /// ritual uses genuine GPUParticles tube trails, the bolt cylinder is gone, and the
+    /// water/terrain vertex-colour channels carry flow and depth for the shaders.
+    /// </summary>
+    private void VerifyVfx(SimulationHost host, HeightfieldView view, WorldCursor cursor,
+        SpellVfx spell, GodHandVfx hand, DruidView druids)
+    {
+        var sim = host.Heightfield;
+        var fireSim = host.Fire;
+        sim.ResetSimulation(); fireSim.ResetFire();
+        view.PublishChanges();
+
+        if (GodHandVfx.ClampRatio(0f, 140f) != 0f || GodHandVfx.ClampRatio(70f, 140f) != .5f
+            || GodHandVfx.ClampRatio(200f, 140f) != 1f || GodHandVfx.ClampRatio(10f, 0f) != 0f)
+            throw new InvalidOperationException("Buffer ratio clamp (empty/half/full/zero-capacity)");
+
+        // The tor top has hundreds of m³ of scoopable dirt; the map-edge dry cells
+        // have almost none, which would stall the fill test.
+        var landSim = FindHighGround(sim);
+        var land = WorldCoordinates.ToGodot(landSim.X, sim.SampleTerrain(landSim), landSim.Z);
+        cursor.SelectTool(MatterTool.Matter);
+        hand.DebugDrive(true, land); // buffer still empty after the reset
+        if (!hand.HandVisible || !hand.MotesEmitting)
+            throw new InvalidOperationException("Hand did not appear with a target");
+        if (hand.OrbitEmitting)
+            throw new InvalidOperationException("Swirl showed with an empty earth buffer");
+
+        sim.ApplyBrush(landSim, MatterType.Earth, true, 3.6f); // ~72 m³: the half state
+        hand.DebugDrive(true, land);
+        if (!hand.OrbitEmitting)
+            throw new InvalidOperationException("Swirl did not show a half buffer");
+        float halfRatio = hand.OrbitRatio;
+        sim.ApplyBrush(landSim, MatterType.Earth, true, 4f); // saturate the 140 m³ buffer
+        hand.DebugDrive(true, land);
+        if (hand.OrbitRatio <= halfRatio)
+            throw new InvalidOperationException("Fill ratio did not rise with the buffer");
+        if (hand.OrbitRatio < .999f)
+            throw new InvalidOperationException($"Full buffer did not clamp to 1: {hand.OrbitRatio}");
+
+        cursor.SelectTool(MatterTool.Lightning);
+        hand.DebugDrive(true, land);
+        if (hand.OrbitEmitting)
+            throw new InvalidOperationException("Lightning must hide held matter");
+        cursor.SelectTool(MatterTool.Fire);
+        hand.DebugDrive(true, land);
+        if (hand.OrbitEmitting)
+            throw new InvalidOperationException("Empty ember buffer must hide the swirl");
+
+        int before = spell.TransientCount;
+        spell.MatterDropped(land, MatterType.Earth);
+        spell.MatterScooped(land, MatterType.Water);
+        spell.EmberGathered(land);
+        spell.EmberDropped(land);
+        if (spell.TransientCount - before < 4)
+            throw new InvalidOperationException("Tool effects did not spawn");
+
+        var dry = FindFuelledDryCell(sim, fireSim);
+        cursor.TickCooldown(10f);
+        int strikeBefore = spell.TransientCount;
+        int struck = cursor.StrikeAt(dry);
+        if (struck <= 0 || spell.TransientCount - strikeBefore < 1)
+            throw new InvalidOperationException("Lightning strike spawned no bolt");
+        if (cursor.GetChildCount() != 1 || cursor.GetChild(0).Name != "AwenBrushRing")
+            throw new InvalidOperationException("The P4 bolt cylinder is still with us");
+
+        var bolt = spell.GetNodeOrNull<Node3D>("Lightning");
+        if (bolt == null) throw new InvalidOperationException("Bolt root missing");
+        bool boltLight = false, boltMeshes = false, boltBurst = false;
+        foreach (Node child in bolt.GetChildren())
+        {
+            if (child is OmniLight3D) boltLight = true;
+            if (child is MeshInstance3D) boltMeshes = true;
+            if (child is GpuParticles3D) boltBurst = true;
+        }
+        if (!boltLight || !boltMeshes || !boltBurst)
+            throw new InvalidOperationException("Bolt lacks light, jagged mesh or impact burst");
+
+        // The API sanity check the plan asked for, asserted: ritual rises are real
+        // GPUParticles trails — tube draw pass, Y-to-velocity, trail-aware material.
+        spell.RitualBurst(WorldCoordinates.ToGodot(druids.Band.HavenCenter.X, 0f, druids.Band.HavenCenter.Z),
+            druids.Band.HavenRadius);
+        var ritual = spell.GetNodeOrNull<Node3D>("Ritual");
+        if (ritual == null) throw new InvalidOperationException("Ritual root missing");
+        int rises = 0;
+        foreach (Node child in ritual.GetChildren())
+        {
+            if (child is not GpuParticles3D rise) continue;
+            if (!rise.TrailEnabled || rise.TrailLifetime <= 0f)
+                throw new InvalidOperationException("Ritual rise is not a trail");
+            if (rise.TransformAlign != GpuParticles3D.TransformAlignEnum.YToVelocity)
+                throw new InvalidOperationException("Tube trail must align Y to velocity");
+            if (rise.DrawPass1 is not TubeTrailMesh tube || tube.Material is not StandardMaterial3D trailMaterial
+                || !trailMaterial.UseParticleTrails)
+                throw new InvalidOperationException("Ritual trail draw pass/material misconfigured");
+            rises++;
+        }
+        if (rises != 7) throw new InvalidOperationException($"Expected seven ritual rises, got {rises}");
+
+        var queued = spell.GetNodeOrNull<Node3D>("Lightning");
+        spell.Tick(999f);
+        if (spell.TransientCount != 0 || (queued != null && !queued.IsQueuedForDeletion()))
+            throw new InvalidOperationException("Transient effects did not retire");
+
+        // Vertex-colour channels: water COLOR.r mirrors FlowSpeed, terrain COLOR.a mirrors depth.
+        view.PublishChanges();
+        using var waterArrays = (view.GetNode<MeshInstance3D>("Water").Mesh as ArrayMesh)!.SurfaceGetArrays(0);
+        var waterColours = waterArrays[(int)Mesh.ArrayType.Color].AsColorArray();
+        using var terrainArrays = (view.GetNode<MeshInstance3D>("Terrain").Mesh as ArrayMesh)!.SurfaceGetArrays(0);
+        var terrainColours = terrainArrays[(int)Mesh.ArrayType.Color].AsColorArray();
+        bool sawWet = false;
+        // Vertex colours come back 8-bit quantized, so allow one quantization step.
+        const float channelTolerance = 1.5f / 255f;
+        for (int z = 0; z < sim.Resolution; z++)
+        for (int x = 0; x < sim.Resolution; x++)
+        {
+            int i = x + z * sim.Resolution;
+            float flowChannel = waterColours[i].R;
+            float expectedFlow = Math.Clamp(sim.FlowSpeed(x, z) * .45f, 0f, 1f);
+            if (Math.Abs(flowChannel - expectedFlow) > channelTolerance)
+                throw new InvalidOperationException($"Flow channel mismatch at {x},{z}");
+            float depth = sim.GetWater(x, z);
+            if (Math.Abs(terrainColours[i].A - Math.Clamp(depth * 1.6f, 0f, 1f)) > channelTolerance)
+                throw new InvalidOperationException($"Depth channel mismatch at {x},{z}");
+            if (depth > 0f) sawWet = true;
+        }
+        if (!sawWet) throw new InvalidOperationException("No wet cells to carry the channels");
+        // The strike boiled water and the ritual reset nothing; some flow must exist
+        // after the strike's brush splash. (Not asserting sawFlow: still pools are legal.)
+
+        sim.ResetSimulation(); fireSim.ResetFire(); spell.ClearTransient();
+        hand.DebugDrive(false, Vector3.Zero);
+        GD.Print("P6 adapter checks PASS: ratio clamp (empty/half/full/zero-capacity), lightning hides held matter, tool + bolt + ritual effects spawn, seven tube-trail rises, cylinder stand-in gone, flow/depth vertex channels, transient retirement, reset.");
+    }
+
+    /// <summary>Staged windowed captures of the P6 effects; explicit verification option only.</summary>
+    private async void RunShowcase(SimulationHost host, StrategyCamera camera, WorldCursor cursor,
+        SpellVfx spell, GodHandVfx hand, DruidView druids, Diagnostics diagnostics)
+    {
+        // An occluded macOS window gets throttled to ~1 fps, which lets every effect
+        // expire between frames; keep the window on top so captures render at full rate.
+        DisplayServer.WindowSetFlag(DisplayServer.WindowFlags.AlwaysOnTop, true);
+        DisplayServer.WindowMoveToForeground();
+        // Age spell effects by hand so captures show a fixed effect age regardless
+        // of how the compositor paces the window.
+        spell.ManualAge = true;
+
+        var sim = host.Heightfield;
+        var fireSim = host.Fire;
+        sim.ResetSimulation(); fireSim.ResetFire();
+        cursor.SelectTool(MatterTool.Matter);
+        camera.ResetView();
+        await WaitFrames(20);
+
+        // God hand, half-full of earth, sweeping a small arc so the spirit trail reads.
+        var centre = FindHighGround(sim);
+        sim.ApplyBrush(centre, MatterType.Earth, true, 3.6f);
+        camera.Focus(WorldCoordinates.ToGodot(centre.X, 0f, centre.Z));
+        await ZoomTo(camera, 36f);
+        for (int i = 0; i < 55; i++)
+        {
+            float angle = i * .09f;
+            var sweep = new System.Numerics.Vector3(
+                centre.X + MathF.Sin(angle) * 2.2f, 0f, centre.Z + MathF.Cos(angle * .7f) * 2.2f);
+            hand.DebugDrive(true, WorldCoordinates.ToGodot(sweep.X, sim.SampleTerrain(sweep), sweep.Z));
+            await WaitFrames(1);
+        }
+        await WaitFrames(10);
+        await Capture("docs/verification/2026-09-12-p6-god-hand.png", diagnostics);
+
+        // Lightning at a dry reed patch, aged 0.12 s so the bolt is mid-flash.
+        var strike = FindFuelledDryCell(sim, fireSim);
+        camera.Focus(WorldCoordinates.ToGodot(strike.X, 0f, strike.Z));
+        cursor.TickCooldown(10f);
+        cursor.StrikeAt(strike);
+        spell.Tick(.12f);
+        await Capture("docs/verification/2026-09-12-p6-lightning.png", diagnostics);
+
+        // Whitewater + caustics: dump the water buffer on the highest ground, freeze the
+        // torrent mid-flow (a paused solver keeps the baked flow foam in the mesh),
+        // then zoom in on the rapids.
+        sim.ResetSimulation(); fireSim.ResetFire(); spell.ClearTransient();
+        hand.DebugDrive(false, Vector3.Zero);
+        var crest = FindHighGround(sim);
+        sim.ApplyBrush(crest, MatterType.Water, false, 7f);
+        for (int i = 0; i < 45; i++) sim.StepOnce();
+        sim.Paused = true;
+        var rapids = FindFastestFlow(sim);
+        // Frame between the pour pool and the slope below it: pool, rapids and sheet.
+        var mid = System.Numerics.Vector3.Lerp(rapids, crest, .35f);
+        camera.Focus(WorldCoordinates.ToGodot(mid.X, 0f, mid.Z));
+        await ZoomTo(camera, 42f);
+        await WaitFrames(30);
+        await Capture("docs/verification/2026-09-12-p6-whitewater.png", diagnostics);
+
+        // Caustics closeup: the shallow margin of whatever pool the map generated.
+        sim.ResetSimulation(); fireSim.ResetFire(); sim.Paused = false;
+        var shallows = FindShallowWater(sim);
+        camera.Focus(WorldCoordinates.ToGodot(shallows.X, 0f, shallows.Z));
+        await ZoomTo(camera, 22f);
+        await WaitFrames(30);
+        await Capture("docs/verification/2026-09-12-p6-caustics.png", diagnostics);
+
+        // Ritual burst at the haven: zoom first (GPU particles age in wall-clock time),
+        // then fire and hand-age 0.67 s — ring mid-bloom, streaks risen, light strong.
+        sim.ResetSimulation(); fireSim.ResetFire(); spell.ClearTransient();
+        camera.Focus(WorldCoordinates.ToGodot(druids.Band.HavenCenter.X, 0f, druids.Band.HavenCenter.Z));
+        await ZoomTo(camera, 44f);
+        spell.RitualBurst(WorldCoordinates.ToGodot(druids.Band.HavenCenter.X, 0f, druids.Band.HavenCenter.Z),
+            druids.Band.HavenRadius);
+        for (int i = 0; i < 20; i++) spell.Tick(1f / 30f);
+        await Capture("docs/verification/2026-09-12-p6-ritual.png", diagnostics);
+        GetTree().Quit(0);
+    }
+
+    /// <summary>Synthesizes wheel notches until the strategy camera reaches the target distance.</summary>
+    private async System.Threading.Tasks.Task ZoomTo(StrategyCamera camera, float targetDistance)
+    {
+        while (Math.Abs(targetDistance - camera.Distance) > 2f)
+        {
+            for (int n = 0; n < 10; n++)
+                Input.ParseInputEvent(new InputEventMouseButton
+                {
+                    ButtonIndex = targetDistance < camera.Distance ? MouseButton.WheelUp : MouseButton.WheelDown,
+                    Pressed = true
+                });
+            Input.FlushBufferedEvents();
+            await WaitFrames(1);
+        }
+    }
+
+    private async System.Threading.Tasks.Task WaitFrames(int count)
+    {
+        for (int i = 0; i < count; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+    }
+
+    private async System.Threading.Tasks.Task Capture(string path, Diagnostics diagnostics)
+    {
+        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        using var image = GetViewport().GetTexture().GetImage();
+        Error error = image.SavePng(ProjectSettings.GlobalizePath(path));
+        GD.Print($"Capture: {path} ({error})\n{diagnostics.Snapshot}");
+    }
+
+    private static System.Numerics.Vector3 FindHighGround(HeightfieldSimulation sim)
+    {
+        float half = sim.WorldSize * .5f;
+        float best = float.MinValue;
+        var at = new System.Numerics.Vector3(0f, 0f, -1f);
+        for (int z = 12; z < sim.Resolution - 12; z += 3)
+        for (int x = 12; x < sim.Resolution - 12; x += 3)
+        {
+            if (sim.GetWater(x, z) > 0f) continue;
+            float height = sim.GetTerrain(x, z);
+            if (height <= best) continue;
+            best = height;
+            at = new System.Numerics.Vector3(x * sim.CellSize - half, 0f, z * sim.CellSize - half);
+        }
+        return at;
+    }
+
+    /// <summary>A wet cell with a shallow visible floor — where caustics read best.</summary>
+    private static System.Numerics.Vector3 FindShallowWater(HeightfieldSimulation sim)
+    {
+        float half = sim.WorldSize * .5f;
+        float best = float.MinValue;
+        var at = new System.Numerics.Vector3(0f, 0f, -1f);
+        for (int z = 8; z < sim.Resolution - 8; z++)
+        for (int x = 8; x < sim.Resolution - 8; x++)
+        {
+            float depth = sim.GetWater(x, z);
+            if (depth < .06f || depth > .3f) continue;
+            // Prefer low terrain: broad shallow sheets, not puddles on the tor.
+            float score = sim.GetTerrain(x, z) < 2f ? depth : 0f;
+            if (score <= best) continue;
+            best = score;
+            at = new System.Numerics.Vector3(x * sim.CellSize - half, 0f, z * sim.CellSize - half);
+        }
+        return at.Z == -1f ? FindWetCell(sim) : at;
+    }
+
+    /// <summary>The cell where the solver says water moves fastest — the rapids.</summary>
+    private static System.Numerics.Vector3 FindFastestFlow(HeightfieldSimulation sim)
+    {
+        float half = sim.WorldSize * .5f;
+        float best = 0f;
+        var at = FindHighGround(sim);
+        for (int z = 4; z < sim.Resolution - 4; z++)
+        for (int x = 4; x < sim.Resolution - 4; x++)
+        {
+            float speed = sim.FlowSpeed(x, z);
+            if (speed <= best) continue;
+            best = speed;
+            at = new System.Numerics.Vector3(x * sim.CellSize - half, 0f, z * sim.CellSize - half);
+        }
+        return at;
+    }
+
     private static System.Numerics.Vector3 FindWetCell(HeightfieldSimulation sim)
     {
         float half = sim.WorldSize * .5f;
@@ -325,13 +655,10 @@ public partial class Main : Node3D
         GetTree().Quit(before != after ? 0 : 1);
     }
 
-    private async void CaptureAfterFrames(string path, Diagnostics diagnostics)
+    private async void CaptureAfterFrames(string path, int frames, Diagnostics diagnostics)
     {
         // Explicit verification option only; normal play never writes screenshots.
-        for (int i = 0; i < 180; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-        using var image = GetViewport().GetTexture().GetImage();
-        Error error = image.SavePng(ProjectSettings.GlobalizePath(path));
-        GD.Print($"Capture: {path} ({error})\n{diagnostics.Snapshot}");
+        await WaitFrames(frames);
+        await Capture(path, diagnostics);
     }
 }

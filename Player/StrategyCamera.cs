@@ -67,6 +67,9 @@ public partial class StrategyCamera : Camera3D
 
     public string DebugState => $"focus {focus.X:0.0},{focus.Z:0.0}  dist {distance:0}  yaw {yaw:0}";
 
+    /// <summary>Verification/capture hook: current view distance.</summary>
+    internal float Distance => distance;
+
     public void Focus(Vector3 worldPoint)
     {
         var sim = WorldCoordinates.ToSimulation(worldPoint);

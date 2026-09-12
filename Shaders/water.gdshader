@@ -3,7 +3,8 @@
 // screen-space refraction with a depth-mask ghost fix); code written for this project.
 // The C# solver owns the surface; this shader only shades it.
 // Contract: COLOR.a is the dry/wet gate fed by HeightfieldView — dry cells are exactly
-// 0 (--verify-p3 asserts it), so the discard below must not weaken.
+// 0 (--verify-p3 asserts it), so the discard below must not weaken. COLOR.r is the
+// flow-whitewater drive (normalized FlowSpeed, P6); COLOR.g/b are unused here.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 
@@ -83,16 +84,18 @@ void fragment() {
 
     // Detail normals: two scrolling octaves, finite differences with an epsilon that
     // grows with distance so speculars stay stable; the surface calms far away.
+    // Fast flow (whitewater drive) roughens the chop locally.
     vec2 p = vec2(world_position.x, -world_position.z);
     float t = TIME * wave_speed;
+    float flow = COLOR.r;
     float e = 0.06 + dist * 0.0015;
     float h = wave_height(p, t);
     float hx = wave_height(p + vec2(e, 0.0), t);
     float hz = wave_height(p + vec2(0.0, e), t);
     float calm = 1.0 - smoothstep(60.0, 140.0, dist);
     float ripple = clamp(COLOR.a * 2.0, 0.0, 1.0) * clamp(thickness * 5.0, 0.0, 1.0);
-    vec3 n = normalize(vec3(-(hx - h) / e * wave_strength * calm * ripple, 1.0,
-                            -(hz - h) / e * wave_strength * calm * ripple));
+    vec3 n = normalize(vec3(-(hx - h) / e * wave_strength * calm * ripple * (1.0 + flow * 1.8), 1.0,
+                            -(hz - h) / e * wave_strength * calm * ripple * (1.0 + flow * 1.8)));
 
     vec3 l = normalize(light_direction);
     float diffuse = clamp(dot(n, l), 0.0, 1.0) * 0.4 + 0.6;
@@ -121,13 +124,17 @@ void fragment() {
     col += spec * vec3(1.0, 0.88, 0.70) * spec_strength;
 
     // Foam: a continuous bright waterline where the terrain meets the surface, a
-    // noise-broken belt just inside it, plus crests on the tallest ripple tops.
+    // noise-broken belt just inside it, crests on the tallest ripple tops, and
+    // flow-driven whitewater wherever the solver says the water actually rushes.
     float fn = fbm(p * foam_noise_scale + vec2(t * foam_noise_speed, -t * foam_noise_speed * 0.7));
     float edge_line = 1.0 - smoothstep(0.0, 0.02, thickness);
     float belt = (1.0 - smoothstep(0.01, foam_sharpness, thickness)) * smoothstep(0.35, 0.75, fn);
     float crest = smoothstep(0.55, 0.80, h) * calm;
-    float foam = clamp(edge_line * 0.6 + belt + crest * crest_amount * step(0.06, thickness), 0.0, 1.0);
+    float rapid = smoothstep(0.18, 0.85, flow);
+    float foam = clamp(edge_line * 0.6 + belt + crest * crest_amount * step(0.06, thickness)
+        + rapid * (0.30 + 0.70 * fn), 0.0, 1.0);
     col = mix(col, foam_color * (diffuse * 0.5 + 0.5), foam);
+    col = mix(col, foam_color * (diffuse * 0.5 + 0.5), rapid * 0.22 * smoothstep(0.02, 0.1, thickness));
 
     float absorb = clamp(1.0 - (transmittance.r + transmittance.g + transmittance.b) / 3.0, 0.0, 1.0);
     float alpha = clamp(0.30 + absorb * 0.7 + fresnel * 0.15, 0.0, 1.0);

@@ -42,6 +42,11 @@ public partial class HeightfieldView : Node3D
     private static readonly Color FlameLow = new(.85f, .22f, .04f);
     private static readonly Color FlameHigh = new(1f, .86f, .38f);
 
+    // Maps solver m/s into the water mesh's 0..1 flow channel; ~2.2 m/s saturates.
+    private const float FlowToFoam = .45f;
+    // Maps water depth into the terrain mesh's alpha channel for shallow caustics.
+    private const float DepthToCaustic = 1.6f;
+
     public void Initialize(HeightfieldSimulation heightfield, FireSimulation fireSimulation)
     {
         simulation = heightfield;
@@ -114,9 +119,13 @@ public partial class HeightfieldView : Node3D
             if (fire.GetCharred(x, z)) ground = Charcoal.Lerp(ground, .12f);
             float flame = fire.GetFire(x, z);
             if (flame > 0) ground = ground.Lerp(FlameLow.Lerp(FlameHigh, flame), .92f);
-            terrainColors[i] = ground;
+            terrainColors[i] = new Color(ground, Mathf.Clamp(depth * DepthToCaustic, 0f, 1f));
             Color body = new Color(.30f, .52f, .55f).Lerp(new Color(.04f, .16f, .28f), Mathf.Clamp(depth * .7f, 0, 1));
-            waterColors[i] = new Color(body, depth <= 0 ? 0 : Mathf.Clamp(.15f + depth * 4f, 0, 1));
+            var water = new Color(body, depth <= 0 ? 0 : Mathf.Clamp(.15f + depth * 4f, 0, 1));
+            // COLOR.r is the whitewater drive: normalized flow speed for the water shader.
+            // The shader ignores G/B (it re-derives body colour from true per-pixel thickness).
+            water.R = Mathf.Clamp(simulation.FlowSpeed(x, z) * FlowToFoam, 0f, 1f);
+            waterColors[i] = water;
         }
         Upload(terrainMesh, terrainArrays, terrainVertices, terrainNormals, terrainColors, terrainMaterial);
         Upload(waterMesh, waterArrays, waterVertices, waterNormals, waterColors, waterMaterial);

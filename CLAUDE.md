@@ -7,10 +7,12 @@ do not develop in it.
 
 ## Verification gate
 
-`./verify.sh` — build, `dotnet test` (NUnit, 34 tests), headless import,
-headless run with the `--verify-p3` / `--verify-p4` / `--verify-p5` adapter
-checks. It must pass before any commit. `--verify-input` additionally drives
-a synthesized keypress through the Input Map and asserts the camera moves.
+`./verify.sh` — build, `dotnet test` (NUnit, 35 tests), headless import,
+headless run with the `--verify-p3` / `--verify-p4` / `--verify-p5` /
+`--verify-p6` adapter checks. It must pass before any commit. `--verify-input`
+additionally drives a synthesized keypress through the Input Map and asserts the
+camera moves; `--showcase` stages windowed captures of the P6 effects (pins the
+window on top — an occluded macOS window throttles to ~1 fps).
 
 ## Godot skills
 

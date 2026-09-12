@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 using TheLevels.Core.Math;
 using TheLevels.Core.Simulation;
@@ -165,6 +166,49 @@ namespace TheLevels.Tests
             // but the contract is that a fresh/reset simulation is never faulted.
             simulation.ResetSimulation();
             Assert.That(simulation.LastError, Is.Null);
+        }
+
+        [Test]
+        public void FlowSpeedIsZeroOnStillWaterAndPositiveOnceWaterMoves()
+        {
+            // Presentation accessor (P6 whitewater): a settled pool has no flow anywhere,
+            // borders included; dumping water onto high ground must produce some flow
+            // on the next step, and every reading stays finite and non-negative.
+            Assert.That(simulation.FlowSpeed(0, 0), Is.EqualTo(0f));
+            Assert.That(simulation.FlowSpeed(simulation.Resolution - 1, simulation.Resolution - 1), Is.EqualTo(0f));
+
+            Vector3 high = FindDryHighGround();
+            simulation.ApplyBrush(high, MatterType.Water, false, 1f);
+            simulation.Paused = false;
+            simulation.StepOnce();
+            simulation.StepOnce();
+
+            float peak = 0f;
+            for (int z = 0; z < simulation.Resolution; z++)
+            for (int x = 0; x < simulation.Resolution; x++)
+            {
+                float speed = simulation.FlowSpeed(x, z);
+                Assert.That(speed, Is.InRange(0f, 20f), $"cell {x},{z}");
+                peak = MathF.Max(peak, speed);
+            }
+            Assert.That(peak, Is.GreaterThan(0.01f), "Dumped water did not flow anywhere.");
+        }
+
+        private Vector3 FindDryHighGround()
+        {
+            float half = simulation.WorldSize * 0.5f;
+            float best = float.MinValue;
+            Vector3 bestAt = default;
+            for (int z = 12; z < simulation.Resolution - 12; z += 4)
+            for (int x = 12; x < simulation.Resolution - 12; x += 4)
+            {
+                if (simulation.GetWater(x, z) > 0f) continue;
+                Vector3 at = new(x * simulation.CellSize - half, 0f, z * simulation.CellSize - half);
+                float height = simulation.GetTerrain(x, z);
+                if (height > best) { best = height; bestAt = at; }
+            }
+            Assert.That(best, Is.GreaterThan(float.MinValue), "No dry high ground found.");
+            return bestAt;
         }
 
         private Vector3 FindWetCell()
