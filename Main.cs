@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using TheLevels.Agents;
 using TheLevels.Player;
 using TheLevels.Core.Simulation;
 using TheLevels.Simulation;
@@ -70,9 +71,14 @@ public partial class Main : Node3D
         AddChild(cursor);
         cursor.Initialize(host, camera);
 
+        var druids = new DruidView { Name = "Druids" };
+        AddChild(druids);
+        druids.Initialize(host);
+        cursor.WorldReset += druids.ResetAll;
+
         var diagnostics = new Diagnostics { Name = "Diagnostics" };
         AddChild(diagnostics);
-        diagnostics.Initialize(host, view, cursor);
+        diagnostics.Initialize(host, view, cursor, druids);
         GD.Print($"The Levels: {host.Heightfield.Resolution}² world ready; engine {Engine.GetVersionInfo()["string"]}");
 
         string[] args = OS.GetCmdlineUserArgs();
@@ -84,6 +90,11 @@ public partial class Main : Node3D
         if (Array.Exists(args, a => a == "--verify-p4"))
         {
             try { VerifyCursor(host, camera, cursor); }
+            catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
+        }
+        if (Array.Exists(args, a => a == "--verify-p5"))
+        {
+            try { VerifyDruids(host, druids); }
             catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
         }
         if (Array.Exists(args, a => a == "--verify-input")) VerifyInput(camera, diagnostics);
@@ -215,6 +226,41 @@ public partial class Main : Node3D
             throw new InvalidOperationException("Reset left residual state");
 
         GD.Print("P4 adapter checks PASS: matter hand auto-select (water/wet, earth/dry), surface targeting, water-surface snapping, earth brush accounting, lightning kindle + cooldown + water boiling, pause/single-step, reset.");
+    }
+
+    /// <summary>P5 gate: bodies, stones, walking while paused, and reset.</summary>
+    private void VerifyDruids(SimulationHost host, DruidView druids)
+    {
+        var band = druids.Band;
+        if (band.Total != 8 || band.AliveCount != 8) throw new InvalidOperationException("Band is not eight living druids");
+        if (band.RitualComplete) throw new InvalidOperationException("Ritual complete before it began");
+        var bodies = druids.GetNode<Node3D>("Druids");
+        if (bodies.GetChildCount() != 8) throw new InvalidOperationException("Missing druid bodies");
+        if (druids.GetNode<Node3D>("Haven Stone Circle").GetChildCount() != 7)
+            throw new InvalidOperationException("Haven is not seven standing stones");
+
+        // Druids keep walking while water and fire are paused.
+        host.Heightfield.Paused = true; host.Fire.Paused = true;
+        var before = band.Agents[0].Position;
+        for (int i = 0; i < 30; i++) band.Advance(1f / 60f);
+        if (System.Numerics.Vector3.Distance(band.Agents[0].Position, before) <= 0.01f)
+            throw new InvalidOperationException("Druids froze with the simulation");
+        var haven = new System.Numerics.Vector2(band.HavenCenter.X, band.HavenCenter.Z);
+        if (System.Numerics.Vector2.Distance(new System.Numerics.Vector2(band.Agents[0].Position.X, band.Agents[0].Position.Z), haven)
+            >= System.Numerics.Vector2.Distance(new System.Numerics.Vector2(before.X, before.Z), haven))
+            throw new InvalidOperationException("Druid did not walk toward the haven");
+        host.Heightfield.Paused = false; host.Fire.Paused = false;
+
+        // Reset drops every old body and respawns a full band.
+        druids.ResetAll();
+        if (band.Total != 8 || band.AliveCount != 8 || band.RitualComplete)
+            throw new InvalidOperationException("Reset did not restore the band");
+        int live = 0;
+        foreach (Node child in bodies.GetChildren())
+            if (!child.IsQueuedForDeletion()) live++;
+        if (live != 8) throw new InvalidOperationException($"Reset left {live} live bodies");
+
+        GD.Print("P5 adapter checks PASS: eight druids, seven stones, walking while paused, haven-ward travel, reset respawn.");
     }
 
     private static System.Numerics.Vector3 FindWetCell(HeightfieldSimulation sim)

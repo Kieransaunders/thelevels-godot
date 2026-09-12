@@ -1,0 +1,51 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: 4.7.2-stable
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ hashFiles('**/*.csproj', 'global.json') }}
+          restore-keys: nuget-
+
+      # verify.sh is a zsh script; keep it as the single gate rather than forking it for CI.
+      - name: Install zsh
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} (.NET)
+        run: |
+          set -euo pipefail
+          name="Godot_v${GODOT_VERSION}_mono_linux_x86_64"
+          curl -fsSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/${name}.zip"
+          unzip -q godot.zip
+          echo "THELEVELS_GODOT_BIN=$PWD/${name}/Godot_v${GODOT_VERSION}_mono_linux.x86_64" >> "$GITHUB_ENV"
+
+      - name: verify.sh
+        # DOTNET_ROOT comes from setup-dotnet; verify.sh only fills in its local default.
+        run: ./verify.sh
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: port-tests
+          path: Tests/TestResults/
+          if-no-files-found: ignore
