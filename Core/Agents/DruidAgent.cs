@@ -117,6 +117,12 @@ public sealed class DruidAgent
         return Vector2.Zero; // boxed in by water and fire — waits for the druid player
     }
 
+    /// <summary>
+    /// Preserved source limitation: the Unity prototype samples only the probe endpoint at
+    /// 2.4 m, never the segment in between, so a hazard narrower than the probe — a single
+    /// 0.75 m rhyne cell, say — is stepped into rather than avoided. Kept for port parity;
+    /// drowning in a hidden channel is a legible outcome the player can bridge.
+    /// </summary>
     private bool SafeStep(Vector3 position, Vector2 direction)
     {
         Vector3 probe = position + new Vector3(direction.X, 0f, direction.Y) * ProbeDistance;
