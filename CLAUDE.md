@@ -47,17 +47,51 @@ keep it as the single gate rather than forking a CI script.
 
 ## Verification gate
 
-`./verify.sh` — build, `dotnet test` (NUnit, 68 tests), headless import, and
-two headless runs. The first passes `--sandbox` with the `--verify-p3` /
+`./verify.sh` — build, `dotnet test` (NUnit, 80 tests), headless import, and
+the headless runs below. The first passes `--sandbox` with the `--verify-p3` /
 `--verify-p4` / `--verify-p5` / `--verify-p6` / `--verify-p7` / `--verify-p8`
-/ `--verify-villagers` adapter checks; the second runs `--verify-level-one`
-on the default scene. It must pass before any commit. P8 covers the flora and
+/ `--verify-villagers` adapter checks; then one `--verify-level` boot per
+catalogue entry, a `--verify-level-hop` run, and `--verify-level-one` on the
+default scene. It must pass before any commit. P8 covers the flora and
 fauna (`Core/Vegetation/`, deer herd, frog chorus); the villager gate
 covers the settlement.
 
-`--sandbox` is what those parity gates need: the default scene now boots the
-authored level-one mission (`Core/Levels/FirstCrossing*`), and `--sandbox`
-falls back to the bare `RaisedWay` map the port was measured against.
+## Levels
+
+`Core/Levels/Catalogue.cs` is the registry: name, title, config and fill for
+every level. Adding a level is a fill function plus one line in `Catalogue.All`
+— the CLI, the L key, the per-level tests and the `verify.sh` loop all read it,
+so nothing else needs touching.
+
+| Want | Do |
+|---|---|
+| See what exists | `godot --headless --path . -- --list-levels` |
+| Play one | `--level=<name>` (or `./"Play The Levels.command" --level=<name>`) |
+| Walk them all by hand | **L** in game — rebuilds the scene on the next entry |
+| Prove one works | it is already in `verify.sh`; nothing to add |
+
+`--sandbox` still works as an alias for `--level=sandbox`. The parity gates run
+on it, because the bare `RaisedWay` map is what the port was measured against;
+the default scene boots the level-one mission (`Core/Levels/FirstCrossing*`).
+
+`Catalogue` deliberately carries config and fill but **not** the mission.
+`FirstCrossingMission` is the only mission that exists, and one example is not
+enough to design an interface from. Promote it when there are two to compare.
+
+Test layers, in the order they will catch a mistake:
+
+1. `Tests/CatalogueTests.cs` — runs engine-free against every catalogue entry:
+   finite heights inside clamps, dry ground and water both present, thirty
+   seconds of solver without faults, reset restores the map, generation is
+   deterministic. A new level inherits all of it for free.
+2. `Tests/<Level>Tests.cs` — the level's own rules (see `FirstCrossingTests`).
+   This is where "can it be solved?" and "can it be lost?" get answered.
+3. `--verify-level` — one headless boot per level: simulation built, terrain
+   rendered, scene assembled, thirty frames clean, reset clean. `verify.sh`
+   loops it from `--list-levels`, so it grows by itself.
+4. `--verify-level-hop` — proves L actually rebuilds onto the next level.
+5. `--capture=<path>@<frames>` — a screenshot, for the failures no assertion
+   catches (groves on the road, a camera pointing at nothing).
 
 Adapter gates brush the solver directly (`sim.ApplyBrush`). Do **not** reach
 for synthesized mouse input in one: Godot reports the real OS cursor through
