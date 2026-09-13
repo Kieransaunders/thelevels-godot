@@ -44,7 +44,7 @@ void fragment() {
 		float a = vnoise(p * caustic_scale + vec2(t * 0.8, t * 0.5));
 		float b = vnoise(p * caustic_scale * 1.27 - vec2(t * 0.55, t * 0.95));
 		float caustic = pow(clamp(a * b * 2.4, 0.0, 1.0), 2.0);
-		float shallow = smoothstep(0.015, 0.06, COLOR.a) * (1.0 - smoothstep(0.30, 0.80, COLOR.a));
+		float shallow = smoothstep(0.03, 0.10, COLOR.a) * (1.0 - smoothstep(0.30, 0.80, COLOR.a));
 		EMISSION = caustic_color * caustic * shallow * caustic_strength;
 	}
 }

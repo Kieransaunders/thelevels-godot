@@ -15,7 +15,10 @@ public partial class HeightfieldView : Node3D
     private ShaderMaterial waterMaterial;
     private Vector3[] terrainVertices, waterVertices, terrainNormals, waterNormals;
     private Color[] terrainColors, waterColors;
-    private int[] indices;
+    private int[] indices, waterIndices;
+    private Vector2[] terrainUvs, waterUvs;
+    // Per-publish snapshots of the solver fields, bilinear-sampled onto the water grid.
+    private float[] terrainField, waterField, flowField;
     private readonly Godot.Collections.Array terrainArrays = new();
     private readonly Godot.Collections.Array waterArrays = new();
     private readonly Stopwatch watch = new();
@@ -47,6 +50,16 @@ public partial class HeightfieldView : Node3D
     // Maps water depth into the terrain mesh's alpha channel for shallow caustics.
     private const float DepthToCaustic = 1.6f;
 
+    // The water surface renders this many sub-steps per solver cell, bilinear-sampled:
+    // 0.75 m cells print shorelines as straight axis-aligned runs at close zoom, and
+    // interpolated sub-quads turn them into smooth depth contours. Sim corners stay
+    // exact grid points (bilinear at integers is the identity), which is what the P3
+    // dry/wet alpha gate samples.
+    public const int WaterSubdiv = 2;
+
+    /// <summary>Vertices per water-grid axis: (Resolution − 1) · WaterSubdiv + 1.</summary>
+    public int WaterGrid { get; private set; }
+
     public void Initialize(HeightfieldSimulation heightfield, FireSimulation fireSimulation)
     {
         simulation = heightfield;
@@ -54,10 +67,11 @@ public partial class HeightfieldView : Node3D
         ProcessPriority = 100;
         int resolution = simulation.Resolution;
         int count = resolution * resolution;
-        terrainVertices = new Vector3[count]; waterVertices = new Vector3[count];
-        terrainNormals = new Vector3[count]; waterNormals = new Vector3[count];
-        terrainColors = new Color[count]; waterColors = new Color[count];
-        var uvs = new Vector2[count];
+        terrainVertices = new Vector3[count];
+        terrainNormals = new Vector3[count];
+        terrainColors = new Color[count];
+        terrainField = new float[count]; waterField = new float[count]; flowField = new float[count];
+        terrainUvs = new Vector2[count];
         indices = new int[(resolution - 1) * (resolution - 1) * 6];
         float half = simulation.WorldSize * .5f;
         for (int z = 0; z < resolution; z++)
@@ -65,8 +79,7 @@ public partial class HeightfieldView : Node3D
         {
             int i = x + z * resolution;
             terrainVertices[i] = WorldCoordinates.ToGodot(x * simulation.CellSize - half, 0, z * simulation.CellSize - half);
-            waterVertices[i] = terrainVertices[i];
-            uvs[i] = new Vector2(x / (float)(resolution - 1), z / (float)(resolution - 1));
+            terrainUvs[i] = new Vector2(x / (float)(resolution - 1), z / (float)(resolution - 1));
         }
         int t = 0;
         for (int z = 0; z < resolution - 1; z++)
@@ -77,13 +90,37 @@ public partial class HeightfieldView : Node3D
             indices[t++] = a; indices[t++] = c; indices[t++] = b;
             indices[t++] = b; indices[t++] = c; indices[t++] = d;
         }
+
+        WaterGrid = (resolution - 1) * WaterSubdiv + 1;
+        int waterCount = WaterGrid * WaterGrid;
+        waterVertices = new Vector3[waterCount];
+        waterNormals = new Vector3[waterCount];
+        waterColors = new Color[waterCount];
+        waterUvs = new Vector2[waterCount];
+        waterIndices = new int[(WaterGrid - 1) * (WaterGrid - 1) * 6];
+        for (int z = 0; z < WaterGrid; z++)
+        for (int x = 0; x < WaterGrid; x++)
+        {
+            int w = x + z * WaterGrid;
+            float fx = x / (float)WaterSubdiv, fz = z / (float)WaterSubdiv;
+            waterVertices[w] = WorldCoordinates.ToGodot(fx * simulation.CellSize - half, 0, fz * simulation.CellSize - half);
+            waterUvs[w] = new Vector2(x / (float)(WaterGrid - 1), z / (float)(WaterGrid - 1));
+        }
+        int wt = 0;
+        for (int z = 0; z < WaterGrid - 1; z++)
+        for (int x = 0; x < WaterGrid - 1; x++)
+        {
+            int a = x + z * WaterGrid, b = a + 1, c = a + WaterGrid, d = c + 1;
+            waterIndices[wt++] = a; waterIndices[wt++] = c; waterIndices[wt++] = b;
+            waterIndices[wt++] = b; waterIndices[wt++] = c; waterIndices[wt++] = d;
+        }
+
         terrainArrays.Resize((int)Mesh.ArrayType.Max);
         waterArrays.Resize((int)Mesh.ArrayType.Max);
-        foreach (var arrays in new[] { terrainArrays, waterArrays })
-        {
-            arrays[(int)Mesh.ArrayType.TexUV] = uvs;
-            arrays[(int)Mesh.ArrayType.Index] = indices;
-        }
+        terrainArrays[(int)Mesh.ArrayType.TexUV] = terrainUvs;
+        terrainArrays[(int)Mesh.ArrayType.Index] = indices;
+        waterArrays[(int)Mesh.ArrayType.TexUV] = waterUvs;
+        waterArrays[(int)Mesh.ArrayType.Index] = waterIndices;
         terrainMaterial = new ShaderMaterial { Shader = GD.Load<Shader>("res://Shaders/terrain.gdshader") };
         waterMaterial = new ShaderMaterial { Shader = GD.Load<Shader>("res://Shaders/water.gdshader") };
         AddChild(new MeshInstance3D { Name = "Terrain", Mesh = terrainMesh });
@@ -107,8 +144,10 @@ public partial class HeightfieldView : Node3D
         {
             int i = x + z * resolution;
             float height = simulation.GetTerrain(x, z), depth = simulation.GetWater(x, z);
+            terrainField[i] = height;
+            waterField[i] = depth;
+            flowField[i] = simulation.FlowSpeed(x, z);
             terrainVertices[i].Y = height;
-            waterVertices[i].Y = height + Mathf.Max(depth, .015f);
             float elevation = Mathf.Clamp((height - .2f) / 11.8f, 0, 1);
             Color ground = Palette(elevation);
             ground = ground.Lerp(WetSheen, Mathf.Clamp(depth * 3f, 0f, 1f) * .45f);
@@ -120,18 +159,60 @@ public partial class HeightfieldView : Node3D
             float flame = fire.GetFire(x, z);
             if (flame > 0) ground = ground.Lerp(FlameLow.Lerp(FlameHigh, flame), .92f);
             terrainColors[i] = new Color(ground, Mathf.Clamp(depth * DepthToCaustic, 0f, 1f));
+        }
+        Upload(terrainMesh, terrainArrays, terrainVertices, terrainNormals, terrainColors, terrainMaterial, indices);
+
+        // Water sub-grid: bilinear the solver fields so the surface and its shoreline
+        // contours curve between cells instead of printing the 0.75 m grid. Corners
+        // (multiples of WaterSubdiv) sample the solver exactly.
+        for (int z = 0; z < WaterGrid; z++)
+        for (int x = 0; x < WaterGrid; x++)
+        {
+            int w = x + z * WaterGrid;
+            float fx = x / (float)WaterSubdiv, fz = z / (float)WaterSubdiv;
+            float depth = Bilinear(waterField, fx, fz);
+            waterVertices[w].Y = Bilinear(terrainField, fx, fz) + Mathf.Max(depth, .015f);
             Color body = new Color(.30f, .52f, .55f).Lerp(new Color(.04f, .16f, .28f), Mathf.Clamp(depth * .7f, 0, 1));
             var water = new Color(body, depth <= 0 ? 0 : Mathf.Clamp(.15f + depth * 4f, 0, 1));
             // COLOR.r is the whitewater drive: normalized flow speed for the water shader.
             // The shader ignores G/B (it re-derives body colour from true per-pixel thickness).
-            water.R = Mathf.Clamp(simulation.FlowSpeed(x, z) * FlowToFoam, 0f, 1f);
-            waterColors[i] = water;
+            water.R = Mathf.Clamp(Bilinear(flowField, fx, fz) * FlowToFoam, 0f, 1f);
+            waterColors[w] = water;
         }
-        Upload(terrainMesh, terrainArrays, terrainVertices, terrainNormals, terrainColors, terrainMaterial);
-        Upload(waterMesh, waterArrays, waterVertices, waterNormals, waterColors, waterMaterial);
+        // Heightfield normals from central differences on the sub-grid (array +z is
+        // godot −Z, so the z term keeps the solver's sign).
+        float doubleStep = 2f * simulation.CellSize / WaterSubdiv;
+        for (int z = 0; z < WaterGrid; z++)
+        for (int x = 0; x < WaterGrid; x++)
+        {
+            int w = x + z * WaterGrid;
+            float yLeft = waterVertices[Math.Max(x - 1, 0) + z * WaterGrid].Y;
+            float yRight = waterVertices[Math.Min(x + 1, WaterGrid - 1) + z * WaterGrid].Y;
+            float yFar = waterVertices[x + Math.Max(z - 1, 0) * WaterGrid].Y;
+            float yNear = waterVertices[x + Math.Min(z + 1, WaterGrid - 1) * WaterGrid].Y;
+            waterNormals[w] = new Vector3(yLeft - yRight, doubleStep, yNear - yFar).Normalized();
+        }
+        waterArrays[(int)Mesh.ArrayType.Vertex] = waterVertices;
+        waterArrays[(int)Mesh.ArrayType.Normal] = waterNormals;
+        waterArrays[(int)Mesh.ArrayType.Color] = waterColors;
+        waterMesh.ClearSurfaces();
+        waterMesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, waterArrays);
+        waterMesh.SurfaceSetMaterial(0, waterMaterial);
         dirty = false;
         RebuildCount++;
         LastUpdateMilliseconds = watch.Elapsed.TotalMilliseconds;
+    }
+
+    private float Bilinear(float[] field, float fx, float fz)
+    {
+        int resolution = simulation.Resolution;
+        float x = Math.Clamp(fx, 0f, resolution - 1f), z = Math.Clamp(fz, 0f, resolution - 1f);
+        int x0 = Math.Min((int)x, resolution - 2), z0 = Math.Min((int)z, resolution - 2);
+        float tx = x - x0, tz = z - z0;
+        int i = x0 + z0 * resolution;
+        float top = field[i] + (field[i + 1] - field[i]) * tx;
+        float bottom = field[i + resolution] + (field[i + resolution + 1] - field[i + resolution]) * tx;
+        return top + (bottom - top) * tz;
     }
 
     /// <summary>Points the water shader's analytic light at the scene sun.</summary>
@@ -153,12 +234,12 @@ public partial class HeightfieldView : Node3D
         return Bands[^1].Ground;
     }
 
-    private void Upload(ArrayMesh mesh, Godot.Collections.Array arrays, Vector3[] vertices, Vector3[] normals, Color[] colors, Material material)
+    private void Upload(ArrayMesh mesh, Godot.Collections.Array arrays, Vector3[] vertices, Vector3[] normals, Color[] colors, Material material, int[] triangleIndices)
     {
         Array.Clear(normals);
-        for (int t = 0; t < indices.Length; t += 3)
+        for (int t = 0; t < triangleIndices.Length; t += 3)
         {
-            int a = indices[t], b = indices[t + 1], c = indices[t + 2];
+            int a = triangleIndices[t], b = triangleIndices[t + 1], c = triangleIndices[t + 2];
             Vector3 normal = (vertices[c] - vertices[a]).Cross(vertices[b] - vertices[a]);
             normals[a] += normal; normals[b] += normal; normals[c] += normal;
         }

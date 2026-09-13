@@ -11,9 +11,11 @@ do not develop in it.
 headless run with the `--verify-p3` / `--verify-p4` / `--verify-p5` /
 `--verify-p6` / `--verify-p7` adapter checks. It must pass before any commit.
 `--verify-input` additionally drives a synthesized keypress through the Input
-Map and asserts the camera moves; `--showcase` stages windowed captures of the
-P6 effects (pins the window on top — an occluded macOS window throttles to
-~1 fps).
+Map and asserts the camera moves, plus a synthesized trackpad pan-scroll and
+asserts the camera zooms (macOS trackpads/Magic Mouse deliver scroll as
+`InputEventPanGesture`, not wheel buttons); `--showcase` stages windowed
+captures of the P6 effects (pins the window on top — an occluded macOS window
+throttles to ~1 fps).
 
 ## Godot skills
 
@@ -43,3 +45,9 @@ Two places these skills conflict with this project — prefer the project:
 Neither those skills nor any other covers `ImmediateMesh` — note that
 `SurfaceBegin`/`SurfaceEnd` append a surface, so a per-frame rebuild needs
 `ClearSurfaces()` first (this caused a ring trail on 2026-09-12).
+
+The water surface renders at `WaterSubdiv` (2×) the solver grid, bilinear-sampled
+in `HeightfieldView`, so shorelines follow smooth depth contours instead of the
+0.75 m cell edges; solver corners stay exact grid points and the P3 gate samples
+their alpha at that stride. Don't flatten the water mesh back to sim resolution —
+close-zoom shoreline smoothness depends on the sub-grid.

@@ -14,8 +14,13 @@ public partial class StrategyCamera : Camera3D
     private const float PanSpeed = 32f;
     private const float ZoomSpeed = 5f;
     private const float RotateSpeed = 75f;
-    // Unity wheel notches carry ~5 units of scroll value; one Godot notch ≈ one Unity notch.
-    private const float ZoomPerNotch = ZoomSpeed * 0.01f * 5f;
+    // Unity wheel notches carry ~5 units of scroll value; one Godot notch ≈ one Unity
+    // notch, doubled after playtesting felt too slow.
+    private const float ZoomPerNotch = ZoomSpeed * 0.01f * 5f * 2f;
+    // macOS trackpads scroll in precise pixel deltas; ~10 px reads as one wheel notch.
+    private const float PanPixelsPerNotch = 10f;
+    private const float ZoomMin = 24f;
+    private const float ZoomMax = 150f;
 
     private System.Numerics.Vector3 focus = new(0f, 2.5f, 0f);
     private float distance = 104f;
@@ -59,9 +64,16 @@ public partial class StrategyCamera : Camera3D
         if (@event is InputEventMouseButton { Pressed: true } button)
         {
             if (button.ButtonIndex == MouseButton.WheelUp)
-                distance = Math.Clamp(distance - ZoomPerNotch, 24f, 150f);
+                distance = Math.Clamp(distance - ZoomPerNotch, ZoomMin, ZoomMax);
             else if (button.ButtonIndex == MouseButton.WheelDown)
-                distance = Math.Clamp(distance + ZoomPerNotch, 24f, 150f);
+                distance = Math.Clamp(distance + ZoomPerNotch, ZoomMin, ZoomMax);
+        }
+        else if (@event is InputEventPanGesture pan)
+        {
+            // macOS sends trackpad/Magic Mouse scroll as pan gestures, never wheel
+            // buttons; the engine negates Apple's deltas, so swipe up (delta.y < 0)
+            // matches WheelUp and zooms in.
+            distance = Math.Clamp(distance + pan.Delta.Y * ZoomPerNotch / PanPixelsPerNotch, ZoomMin, ZoomMax);
         }
     }
 

@@ -24,8 +24,7 @@ uniform float wave_strength : hint_range(0.0, 0.5) = 0.16;
 uniform float wave_scale = 0.9;
 uniform float wave_speed : hint_range(0.0, 3.0) = 1.0;
 uniform float spec_strength : hint_range(0.0, 1.0) = 0.22;
-uniform float foam_sharpness : hint_range(0.01, 0.3) = 0.09;
-uniform float foam_noise_scale = 2.5;
+uniform float foam_noise_scale = 1.6;
 uniform float foam_noise_speed : hint_range(0.0, 2.0) = 0.35;
 uniform float crest_amount : hint_range(0.0, 1.0) = 0.35;
 
@@ -123,23 +122,36 @@ void fragment() {
     col = mix(col, sky_reflect, fresnel * 0.55);
     col += spec * vec3(1.0, 0.88, 0.70) * spec_strength;
 
-    // Foam: a continuous bright waterline where the terrain meets the surface, a
-    // noise-broken belt just inside it, crests on the tallest ripple tops, and
-    // flow-driven whitewater wherever the solver says the water actually rushes.
-    float fn = fbm(p * foam_noise_scale + vec2(t * foam_noise_speed, -t * foam_noise_speed * 0.7));
-    float edge_line = 1.0 - smoothstep(0.0, 0.02, thickness);
-    float belt = (1.0 - smoothstep(0.01, foam_sharpness, thickness)) * smoothstep(0.35, 0.75, fn);
+    // Foam: the reference look wants billowy organic contact with land, so every
+    // waterline term rides a noise-perturbed thickness contour — the raw mesh would
+    // otherwise print the axis-aligned cell boundary as squares with right angles.
+    // The shore band is deliberately wide (~half a metre): a thin outline cannot hide
+    // the 0.75 m cell steps at close zoom, a soft foam mass swallows them. Where water
+    // meets a steep shelf the depth gradient is near-vertical and no threshold can
+    // wobble the line, so the noise domain itself is warped laterally.
+    vec2 lap = vec2(fbm(p * 0.8 + vec2(t * 0.20, 0.0)), fbm(p * 0.8 + vec2(4.7 - t * 0.17, 2.3))) - 0.5;
+    float fn = fbm((p + lap * 1.3) * foam_noise_scale + vec2(t * foam_noise_speed, -t * foam_noise_speed * 0.7));
+    float shore = thickness + (fn - 0.5) * 0.12;
+    float shore_foam = (1.0 - smoothstep(0.03, 0.40 + fn * 0.30, shore)) * smoothstep(0.22, 0.55, fn);
+    float contact = (1.0 - smoothstep(0.0, 0.05, shore)) * smoothstep(0.35, 0.7, fn);
+    // Steep banks (ditch walls) have a near-vertical thickness gradient, so no
+    // thickness threshold can wobble their waterline — line them with foam instead.
+    // Real depth spikes only past the shore band, so silhouettes never gate this in.
+    float wall = smoothstep(0.35, 1.2, length(vec2(dFdx(thickness), dFdy(thickness))));
+    shore_foam = max(shore_foam, wall * (1.0 - smoothstep(0.0, 0.35 + fn * 0.30, shore)) * smoothstep(0.12, 0.4, fn));
     float crest = smoothstep(0.55, 0.80, h) * calm;
     float rapid = smoothstep(0.18, 0.85, flow);
-    float foam = clamp(edge_line * 0.6 + belt + crest * crest_amount * step(0.06, thickness)
+    float foam = clamp(shore_foam * 0.8 + contact * 0.7 + crest * crest_amount * step(0.06, thickness)
         + rapid * (0.30 + 0.70 * fn), 0.0, 1.0);
     col = mix(col, foam_color * (diffuse * 0.5 + 0.5), foam);
     col = mix(col, foam_color * (diffuse * 0.5 + 0.5), rapid * 0.22 * smoothstep(0.02, 0.1, thickness));
 
     float absorb = clamp(1.0 - (transmittance.r + transmittance.g + transmittance.b) / 3.0, 0.0, 1.0);
     float alpha = clamp(0.30 + absorb * 0.7 + fresnel * 0.15, 0.0, 1.0);
-    alpha *= smoothstep(0.0, 0.04, thickness); // soft shoreline: the film fades onto the mud
-    alpha = max(alpha, foam * 0.85);
+    // The visible waterline is a depth contour ~4-10 cm inside the wet area, wobbling
+    // with the lap noise — never the wet/dry cell edge itself.
+    alpha *= smoothstep(0.02, 0.10, shore);
+    alpha = max(alpha, max(foam * 0.9, contact * 0.95));
     ALBEDO = col;
     ALPHA = alpha;
 }

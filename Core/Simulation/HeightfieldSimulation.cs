@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Numerics;
+using TheLevels.Core.Levels;
 using TheLevels.Core.Math;
 
 namespace TheLevels.Core.Simulation
@@ -14,6 +15,7 @@ namespace TheLevels.Core.Simulation
     public sealed class HeightfieldSimulation
     {
         private readonly SimulationConfig config;
+        private readonly Action<int, float, float, float, float[], float[]> levelFill;
 
         private const float Gravity = 9.81f;
 
@@ -41,9 +43,19 @@ namespace TheLevels.Core.Simulation
 
         public HeightfieldSimulation() : this(new SimulationConfig()) { }
 
-        public HeightfieldSimulation(SimulationConfig simulationConfig)
+        /// <summary>
+        /// <paramref name="levelFill"/> populates terrain and water for the level being
+        /// played; it defaults to level 1. It is a constructor parameter rather than a
+        /// settable property because Initialize() runs here, so a field would be assigned
+        /// too late to have any effect.
+        /// ponytail: a delegate, not an ILevel interface — there is one shape of level
+        /// and the delegate is the whole contract. Promote it if levels ever need state.
+        /// </summary>
+        public HeightfieldSimulation(SimulationConfig simulationConfig,
+            Action<int, float, float, float, float[], float[]>? levelFill = null)
         {
             config = simulationConfig;
+            this.levelFill = levelFill ?? RaisedWay.Fill;
             Initialize();
         }
 
@@ -104,7 +116,7 @@ namespace TheLevels.Core.Simulation
             outgoing = new float[count];
             delta = new float[count];
 
-            GenerateSomersetTestMap();
+            levelFill(Resolution, WorldSize, config.MinimumTerrainHeight, config.MaximumTerrainHeight, terrain, water);
             Array.Copy(terrain, initialTerrain, count);
             Array.Copy(water, initialWater, count);
             ResetSimulation();
@@ -428,39 +440,6 @@ namespace TheLevels.Core.Simulation
                 StateChanged?.Invoke();
         }
 
-        private void GenerateSomersetTestMap()
-        {
-            float half = WorldSize * 0.5f;
-            for (int z = 0; z < Resolution; z++)
-            for (int x = 0; x < Resolution; x++)
-            {
-                float worldX = x * CellSize - half;
-                float worldZ = z * CellSize - half;
-                // Unity baseline used Mathf.PerlinNoise here; replaced by deterministic value
-                // noise (accepted deviation) at the same 0.055 scale and 0.45 amplitude.
-                float lowUndulation = DeterministicNoise.ValueNoise(x * 0.055f, z * 0.055f) * 0.45f;
-                float height = 1.1f + lowUndulation;
-
-                height += Gaussian(worldX, worldZ, -8f, -4f, 19f, 4.2f);
-                height += Gaussian(worldX, worldZ, 20f, -12f, 11f, 2.4f);
-                height += Gaussian(worldX, worldZ, -27f, 13f, 9f, 2.0f);
-                height += Gaussian(worldX, worldZ, 25f, 31f, 10f, 11.5f);
-
-                float channelCenter = SimulationMath.Sin((worldZ + 15f) * 0.09f) * 8f + 4f;
-                float channel = SimulationMath.Exp(-SimulationMath.Pow((worldX - channelCenter) / 3.2f, 2f));
-                height -= channel * 0.8f;
-
-                int index = Index(x, z);
-                terrain[index] = SimulationMath.Clamp(height, config.MinimumTerrainHeight, config.MaximumTerrainHeight);
-
-                bool upperPool = SimulationMath.Distance(worldX, worldZ, -3f, 27f) < 11f;
-                bool lowerBasin = SimulationMath.Distance(worldX, worldZ, 17f, -29f) < 13f;
-                bool rhyne = SimulationMath.Abs(worldX - channelCenter) < 2.1f && worldZ > -25f && worldZ < 25f;
-                float targetSurface = upperPool ? 3.0f : lowerBasin ? 1.7f : rhyne ? 1.55f : 0f;
-                water[index] = SimulationMath.Max(0f, targetSurface - terrain[index]);
-            }
-        }
-
         private float SampleBilinear(float[] values, Vector3 worldPosition)
         {
             WorldToGrid(worldPosition, out float gx, out float gz);
@@ -495,13 +474,6 @@ namespace TheLevels.Core.Simulation
         {
             float t = SimulationMath.Clamp01(1f - normalizedDistance);
             return t * t * (3f - 2f * t);
-        }
-
-        private static float Gaussian(float x, float z, float centerX, float centerZ, float radius, float height)
-        {
-            float dx = x - centerX;
-            float dz = z - centerZ;
-            return SimulationMath.Exp(-(dx * dx + dz * dz) / (2f * radius * radius)) * height;
         }
     }
 }
