@@ -18,6 +18,8 @@ public static class InputBindings
     public const string StepOnce = "step_once";
     public const string FocusCamera = "focus_camera";
     public const string ToggleMetrics = "toggle_metrics";
+    /// <summary>Developer key: rebuild the scene on the next level in the catalogue.</summary>
+    public const string NextLevel = "next_level";
     public const string CamForward = "cam_forward";
     public const string CamBack = "cam_back";
     public const string CamLeft = "cam_left";
@@ -40,6 +42,7 @@ public static class InputBindings
         BindKey(StepOnce, Key.N);
         BindKey(FocusCamera, Key.F);
         BindKey(ToggleMetrics, Key.F1);
+        BindKey(NextLevel, Key.L);
         BindKey(CamForward, Key.W);
         BindKey(CamBack, Key.S);
         BindKey(CamLeft, Key.A);
