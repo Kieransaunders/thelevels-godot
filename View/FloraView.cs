@@ -37,7 +37,8 @@ public partial class FloraView : Node3D
     public void Initialize(SimulationHost host)
     {
         heightfield = host.Heightfield;
-        forest = new ForestManager(heightfield, host.Fire);
+        forest = new ForestManager(heightfield, host.Fire,
+            keepClear: host.Mission != null ? TheLevels.Core.Levels.FirstCrossing.KeepClear : null);
         forest.Respawned += Build;
         Build();
     }

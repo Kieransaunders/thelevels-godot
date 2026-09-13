@@ -47,13 +47,24 @@ keep it as the single gate rather than forking a CI script.
 
 ## Verification gate
 
-`./verify.sh` — build, `dotnet test` (NUnit, 62 tests), headless import,
-headless run with the `--verify-p3` / `--verify-p4` / `--verify-p5` /
-`--verify-p6` / `--verify-p7` / `--verify-p8` / `--verify-villagers`
-adapter checks. It must pass before any commit. P8 covers the flora and
+`./verify.sh` — build, `dotnet test` (NUnit, 68 tests), headless import, and
+two headless runs. The first passes `--sandbox` with the `--verify-p3` /
+`--verify-p4` / `--verify-p5` / `--verify-p6` / `--verify-p7` / `--verify-p8`
+/ `--verify-villagers` adapter checks; the second runs `--verify-level-one`
+on the default scene. It must pass before any commit. P8 covers the flora and
 fauna (`Core/Vegetation/`, deer herd, frog chorus); the villager gate
-covers the settlement. `--verify-input` additionally drives a synthesized
-keypress through the Input
+covers the settlement.
+
+`--sandbox` is what those parity gates need: the default scene now boots the
+authored level-one mission (`Core/Levels/FirstCrossing*`), and `--sandbox`
+falls back to the bare `RaisedWay` map the port was measured against.
+
+Adapter gates brush the solver directly (`sim.ApplyBrush`). Do **not** reach
+for synthesized mouse input in one: Godot reports the real OS cursor through
+`GetViewport().GetMousePosition()`, so headless the window is a 64 px stub and
+the cursor never moves, and windowed it lands wherever the physical mouse
+happens to sit. `--verify-input` is the exception and runs windowed, on its
+own, outside `verify.sh`. It drives a synthesized keypress through the Input
 Map and asserts the camera moves, plus a synthesized trackpad pan-scroll and
 asserts the camera zooms (macOS trackpads/Magic Mouse deliver scroll as
 `InputEventPanGesture`, not wheel buttons); `--showcase` stages windowed

@@ -25,16 +25,19 @@ public sealed class ForestManager
     private readonly FireSimulation fire;
     private readonly int targetCount;
     private readonly int seed;
+    /// <summary>An authored level's veto on grove sites — its road, camp and working ground.</summary>
+    private readonly Func<Vector3, bool>? keepClear;
     private readonly List<TreeAgent> trees = new();
     private Random random = new();
 
     public ForestManager(HeightfieldSimulation heightfieldSimulation, FireSimulation fireSimulation,
-        int targetCount = 110, int seed = 1187)
+        int targetCount = 110, int seed = 1187, Func<Vector3, bool>? keepClear = null)
     {
         heightfield = heightfieldSimulation;
         fire = fireSimulation;
         this.targetCount = targetCount;
         this.seed = seed;
+        this.keepClear = keepClear;
         SpawnAll();
     }
 
@@ -108,6 +111,7 @@ public sealed class ForestManager
         if (height < 0.7f || height > 8.5f) return false;
         if (Vector2.Distance(at, new Vector2(DruidHaven.X, DruidHaven.Z)) < 9f) return false;
         if (Vector2.Distance(at, new Vector2(DruidSpawn.X, DruidSpawn.Z)) < 9f) return false;
+        if (keepClear != null && keepClear(probe)) return false;
         return true;
     }
 

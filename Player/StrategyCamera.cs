@@ -26,6 +26,15 @@ public partial class StrategyCamera : Camera3D
     private float distance = 104f;
     private float yaw = -35f;
     private float pitch = 52f;
+    private System.Numerics.Vector3 homeFocus = new(0f, 2.5f, 0f);
+    private float homeDistance = 104f;
+
+    public void SetHome(System.Numerics.Vector3 point, float viewDistance)
+    {
+        homeFocus = point;
+        homeDistance = Math.Clamp(viewDistance, ZoomMin, ZoomMax);
+        ResetView();
+    }
 
     public override void _Ready()
     {
@@ -91,8 +100,8 @@ public partial class StrategyCamera : Camera3D
 
     public void ResetView()
     {
-        focus = new System.Numerics.Vector3(0f, 2.5f, 0f);
-        distance = 104f;
+        focus = homeFocus;
+        distance = homeDistance;
         yaw = -35f;
         pitch = 52f;
         ApplyView();

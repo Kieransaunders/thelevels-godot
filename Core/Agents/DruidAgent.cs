@@ -24,16 +24,18 @@ public sealed class DruidAgent
 
     private readonly HeightfieldSimulation heightfield;
     private readonly FireSimulation fire;
-    private readonly Vector3 target;
+    private Vector3 target;
+    private readonly Func<Vector3, Vector3, bool>? canTraverse;
     private float drownTimer;
     private float clock;
 
     public DruidAgent(Vector3 position, Vector3 target, HeightfieldSimulation heightfield,
-        FireSimulation fire, float bobPhase)
+        FireSimulation fire, float bobPhase, Func<Vector3, Vector3, bool>? canTraverse = null)
     {
         this.heightfield = heightfield;
         this.fire = fire;
         this.target = target;
+        this.canTraverse = canTraverse;
         Position = position;
         BobPhase = bobPhase;
         Heading = MathF.Atan2(target.X - position.X, target.Z - position.Z);
@@ -48,6 +50,8 @@ public sealed class DruidAgent
     public float BobPhase { get; }
     public bool Wading { get; private set; }
     public bool IsDead => State == DruidState.Dead;
+
+    public void SetDestination(Vector3 destination) => target = destination;
 
     public void Tick(float delta, Vector2? fireThreatCenter, float panicRadius)
     {
@@ -93,8 +97,12 @@ public sealed class DruidAgent
         bool moving = desired != Vector2.Zero;
         if (moving)
         {
-            position += new Vector3(desired.X, 0f, desired.Y) * (speed * delta);
-            position = PedestrianSteering.ClampToWorld(position, heightfield);
+            // The shared steering helpers move and turn; canTraverse is the mission's veto,
+            // so a survivor cannot step into a hole the route inspector already rejected.
+            Vector3 next = PedestrianSteering.ClampToWorld(
+                position + new Vector3(desired.X, 0f, desired.Y) * (speed * delta), heightfield);
+            if (canTraverse == null || canTraverse(position, next)) position = next;
+            else moving = false;
             Heading = PedestrianSteering.TurnToward(Heading, MathF.Atan2(desired.X, desired.Y), 10f * delta);
         }
 

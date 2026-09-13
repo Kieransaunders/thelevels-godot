@@ -59,7 +59,7 @@ public partial class WorldCursor : Node3D
     public MatterTool SelectedTool { get; private set; } = MatterTool.Matter;
 
     /// <summary>Select the active tool programmatically (mirrors the 1–4 keys).</summary>
-    public void SelectTool(MatterTool tool) => SelectedTool = tool;
+    public void SelectTool(MatterTool tool) => SelectedTool = host?.Mission != null ? MatterTool.Matter : tool;
     public MatterType CarriedMatter => carriedMatter;
 
     /// <summary>What the hand would scoop at this point: water over open water, earth on land.</summary>
@@ -96,7 +96,21 @@ public partial class WorldCursor : Node3D
             return;
 
         if (Input.IsActionJustPressed(InputBindings.FocusCamera))
-            camera.Focus(cursorPosition);
+        {
+            if (host.Mission == null) camera.Focus(cursorPosition);
+            else
+            {
+                var centre = System.Numerics.Vector3.Zero;
+                int count = 0;
+                foreach (var person in host.Mission.Band.Agents)
+                    if (!person.IsDead) { centre += person.Position; count++; }
+                if (count > 0)
+                {
+                    centre /= count;
+                    camera.Focus(WorldCoordinates.ToGodot(centre.X, centre.Y, centre.Z));
+                }
+            }
+        }
 
         ringMaterial.SetShaderParameter("albedo", RingColor());
         UpdateRing();
@@ -161,14 +175,17 @@ public partial class WorldCursor : Node3D
         // The hand is matter-agnostic now; 1/2 both just return to it from fire/lightning.
         if (Input.IsActionJustPressed(InputBindings.ToolEarth)) SelectedTool = MatterTool.Matter;
         if (Input.IsActionJustPressed(InputBindings.ToolWater)) SelectedTool = MatterTool.Matter;
-        if (Input.IsActionJustPressed(InputBindings.ToolFire)) SelectedTool = MatterTool.Fire;
-        if (Input.IsActionJustPressed(InputBindings.ToolLightning)) SelectedTool = MatterTool.Lightning;
+        if (Input.IsActionJustPressed(InputBindings.ToolFire)) SelectTool(MatterTool.Fire);
+        if (Input.IsActionJustPressed(InputBindings.ToolLightning)) SelectTool(MatterTool.Lightning);
 
         if (Input.IsActionJustPressed(InputBindings.ResetWorld))
         {
             simulation.ResetSimulation();
             fire.ResetFire();
             camera.ResetView();
+            carriedMatter = MatterType.Earth;
+            SelectedTool = MatterTool.Matter;
+            strikeCooldownRemaining = 0f;
             WorldReset?.Invoke();
         }
         if (Input.IsActionJustPressed(InputBindings.TogglePause))

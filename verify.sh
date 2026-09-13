@@ -19,6 +19,11 @@ echo "== godot headless import =="
 "$THELEVELS_GODOT_BIN" --headless --path . --import >/dev/null
 
 echo "== godot headless run ($FRAMES frames) =="
-"$THELEVELS_GODOT_BIN" --headless --path . --quit-after "$FRAMES" -- --verify-p3 --verify-p4 --verify-p5 --verify-p6 --verify-p7 --verify-p8 --verify-villagers
+# The parity gates want the RaisedWay sandbox; --sandbox opts out of the level-one mission.
+"$THELEVELS_GODOT_BIN" --headless --path . --quit-after "$FRAMES" -- --sandbox \
+    --verify-p3 --verify-p4 --verify-p5 --verify-p6 --verify-p7 --verify-p8 --verify-villagers
+
+echo "== first crossing adapter gate =="
+"$THELEVELS_GODOT_BIN" --headless --path . --quit-after "$FRAMES" -- --verify-level-one
 
 echo "== verify.sh OK =="
