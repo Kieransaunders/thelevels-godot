@@ -26,6 +26,7 @@ public partial class Diagnostics : CanvasLayer
     {
         host = simulationHost; view = heightfieldView; cursor = worldCursor; druids = druidView;
         camera = worldCursor.GetParent().GetNodeOrNull<StrategyCamera>("WorldCamera");
+        visible = host.Mission == null;
         ProcessPriority = 200;
         panel = new PanelContainer { Position = new Vector2(24, 24), CustomMinimumSize = new Vector2(276, 0) };
         var style = new StyleBoxFlat
@@ -61,6 +62,9 @@ public partial class Diagnostics : CanvasLayer
                    "1/2 MATTER HAND   3 FIRE   4 LIGHTNING   WASD MOVE   Q/E ROTATE   ↑/↓ TILT   WHEEL ZOOM   F FOCUS   R RESET   SPACE PAUSE   N STEP   F1 METRICS"
         };
         controls.AddThemeFontSizeOverride("font_size", 13);
+        if (host.Mission != null)
+            controls.Text = "LEFT HOLD: GATHER   ·   RIGHT HOLD: POUR   ·   AMBER: EARTH   /   BLUE: WATER\n" +
+                "WASD MOVE   Q/E ROTATE   ↑/↓ TILT   SCROLL ZOOM   F FIND PEOPLE   R RESTART   SPACE PAUSE   N STEP WATER   F1 METRICS";
         controls.AddThemeColorOverride("font_color", new Color(.70f, .74f, .68f));
         var controlsPanel = new PanelContainer
         {
@@ -77,6 +81,8 @@ public partial class Diagnostics : CanvasLayer
         });
         controlsPanel.AddChild(controls);
         AddChild(controlsPanel);
+        panel.Visible = visible;
+        if (host.Mission != null) panel.Position = new Vector2(400, 24);
         Refresh();
     }
 

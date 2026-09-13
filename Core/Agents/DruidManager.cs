@@ -20,15 +20,20 @@ public sealed class DruidManager
     private readonly List<DruidAgent> agents = new();
     private readonly Random random;
     private readonly int druidCount;
+    private readonly Func<Vector3, Vector3, bool>? canTraverse;
     private float threatTimer;
     private bool threatActive;
     private Vector2 threatCenter;
 
-    public DruidManager(HeightfieldSimulation heightfield, FireSimulation fire, int druidCount = 8, int seed = 7001)
+    public DruidManager(HeightfieldSimulation heightfield, FireSimulation fire, int druidCount = 8, int seed = 7001,
+        Vector3? spawnCenter = null, Vector3? havenCenter = null, Func<Vector3, Vector3, bool>? canTraverse = null)
     {
         this.heightfield = heightfield;
         this.fire = fire;
         this.druidCount = druidCount;
+        this.canTraverse = canTraverse;
+        if (spawnCenter.HasValue) SpawnCenter = spawnCenter.Value;
+        if (havenCenter.HasValue) HavenCenter = havenCenter.Value;
         random = new Random(seed);
         SpawnAll();
     }
@@ -42,6 +47,7 @@ public sealed class DruidManager
     public event Action? Respawned;
 
     public bool RitualComplete { get; private set; }
+    public bool AutoCompleteRitual { get; set; } = true;
     public int AliveCount { get; private set; }
     public int Total => agents.Count;
     public IReadOnlyList<DruidAgent> Agents => agents;
@@ -64,11 +70,16 @@ public sealed class DruidManager
         }
 
         // All-dead must not complete the ritual: at least one survivor, and every survivor home.
-        if (!RitualComplete && agents.Count > 0 && AliveCount > 0 && AllLivingAtHaven())
+        if (AutoCompleteRitual && !RitualComplete && agents.Count > 0 && AliveCount > 0 && AllLivingAtHaven())
         {
             RitualComplete = true;
             RitualCompleted?.Invoke();
         }
+    }
+
+    public void SetDestination(Vector3 destination)
+    {
+        foreach (var agent in agents) agent.SetDestination(destination);
     }
 
     public void ResetAll()
@@ -108,7 +119,7 @@ public sealed class DruidManager
             Vector3 at = SpawnCenter + new Vector3(MathF.Cos(angle), 0f, MathF.Sin(angle)) * 2.6f;
             at.Y = heightfield.SampleSurface(at);
             agents.Add(new DruidAgent(at, HavenCenter, heightfield, fire,
-                (float)random.NextDouble() * MathF.PI * 2f));
+                (float)random.NextDouble() * MathF.PI * 2f, canTraverse));
         }
         AliveCount = agents.Count;
     }

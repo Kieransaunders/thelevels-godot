@@ -18,6 +18,7 @@ public partial class DruidView : Node3D
     private static readonly Color CharredColour = new(.07f, .06f, .05f);
 
     private DruidManager band;
+    private TheLevels.Core.Levels.FirstCrossingMission mission;
     private Node3D bodies;
     private readonly List<Node3D> figures = new();
 
@@ -28,10 +29,11 @@ public partial class DruidView : Node3D
 
     public void Initialize(SimulationHost host)
     {
-        band = new DruidManager(host.Heightfield, host.Fire);
+        mission = host.Mission;
+        band = mission?.Band ?? new DruidManager(host.Heightfield, host.Fire);
         band.RitualCompleted += OnRitualCompleted;
         band.Respawned += RebuildBodies;
-        BuildHaven(host);
+        if (mission == null) BuildHaven(host);
         bodies = new Node3D { Name = "Druids" };
         AddChild(bodies);
         RebuildBodies();
@@ -40,7 +42,8 @@ public partial class DruidView : Node3D
     public override void _Process(double delta)
     {
         if (band == null) return;
-        band.Advance((float)delta);
+        if (mission != null) mission.Advance((float)delta);
+        else band.Advance((float)delta);
         for (int i = 0; i < figures.Count && i < band.Total; i++) Pose(figures[i], band.Agents[i], (float)delta);
     }
 
@@ -52,7 +55,11 @@ public partial class DruidView : Node3D
     }
 
     /// <summary>R resets the world: fresh druids, ritual uncompleted.</summary>
-    public void ResetAll() => band?.ResetAll();
+    public void ResetAll()
+    {
+        if (mission != null) mission.Reset();
+        else band?.ResetAll();
+    }
 
     private void Pose(Node3D figure, DruidAgent agent, float delta)
     {

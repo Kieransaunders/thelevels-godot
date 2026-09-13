@@ -16,7 +16,8 @@ public partial class Main : Node3D
     {
         InputBindings.Register();
 
-        var host = new SimulationHost { Name = "SimulationHost" };
+        string[] args = OS.GetCmdlineUserArgs();
+        var host = new SimulationHost { Name = "SimulationHost", Sandbox = Array.Exists(args, a => a == "--sandbox") };
         AddChild(host);
         var view = new HeightfieldView { Name = "HeightfieldView" };
         AddChild(view);
@@ -68,6 +69,7 @@ public partial class Main : Node3D
 
         var camera = new StrategyCamera { Name = "WorldCamera" };
         AddChild(camera);
+        if (host.Mission != null) camera.SetHome(new System.Numerics.Vector3(3, 2.5f, 0), 70f);
         var cursor = new WorldCursor { Name = "WorldCursor" };
         AddChild(cursor);
         cursor.Initialize(host, camera);
@@ -102,9 +104,20 @@ public partial class Main : Node3D
         hand.Initialize(cursor, host);
         druids.Spell = spell;
 
+        if (host.Mission != null)
+        {
+            var crossing = new FirstCrossingView { Name = "FirstCrossing" };
+            AddChild(crossing);
+            crossing.Initialize(host);
+            var missionHud = new CrossingHud { Name = "CrossingHud" };
+            AddChild(missionHud);
+            missionHud.Initialize(host);
+        }
+
         GD.Print($"The Levels: {host.Heightfield.Resolution}² world ready; engine {Engine.GetVersionInfo()["string"]}");
 
-        string[] args = OS.GetCmdlineUserArgs();
+        if (Array.Exists(args, a => a == "--verify-level-one")) VerifyFirstCrossing(host, camera, cursor, druids);
+
         if (Array.Exists(args, a => a == "--verify-p3"))
         {
             try { VerifyView(host, view, diagnostics); }

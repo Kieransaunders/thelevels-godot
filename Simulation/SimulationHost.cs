@@ -1,11 +1,14 @@
 using Godot;
 using System.Diagnostics;
 using TheLevels.Core.Simulation;
+using TheLevels.Core.Levels;
 
 namespace TheLevels.Simulation;
 
 public partial class SimulationHost : Node
 {
+    public bool Sandbox { get; set; }
+    public FirstCrossingMission Mission { get; private set; }
     public HeightfieldSimulation Heightfield { get; private set; }
     public FireSimulation Fire { get; private set; }
     public double LastFireAdvanceMilliseconds { get; private set; }
@@ -13,8 +16,10 @@ public partial class SimulationHost : Node
 
     public override void _Ready()
     {
-        Heightfield = new HeightfieldSimulation();
+        Heightfield = Sandbox ? new HeightfieldSimulation()
+            : new HeightfieldSimulation(FirstCrossing.Configuration(), FirstCrossing.Fill);
         Fire = new FireSimulation(Heightfield);
+        if (!Sandbox) Mission = new FirstCrossingMission(Heightfield, Fire);
         Heightfield.Faulted += OnFault;
         ProcessPriority = -100;
     }
