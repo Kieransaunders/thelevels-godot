@@ -12,6 +12,7 @@ public partial class Diagnostics : CanvasLayer
     private HeightfieldView view;
     private WorldCursor cursor;
     private DruidView druids;
+    private VillagerView villagers;
     private StrategyCamera camera;
     private Label body;
     private Label state;
@@ -79,6 +80,9 @@ public partial class Diagnostics : CanvasLayer
         Refresh();
     }
 
+    /// <summary>Villagers attach after diagnostics (Village.Attach) rather than widening Initialize.</summary>
+    public void SetVillagers(VillagerView view) => villagers = view;
+
     public override void _Process(double delta)
     {
         if (Input.IsActionJustPressed(InputBindings.ToggleMetrics))
@@ -121,7 +125,8 @@ public partial class Diagnostics : CanvasLayer
             $"Wet cells   {metrics.WetCells:N0}\nDeepest water   {metrics.MaximumWaterDepth:0.000} m\nPeak speed   {sim.MaxWaterSpeed:0.000} m/s\n\n" +
             $"Earth held   {sim.EarthBuffer:0.0} / {sim.EarthCapacity:0} m³\nWater held   {sim.WaterBuffer:0.0} / {sim.WaterCapacity:0} m³\nEmbers held   {fire.EmberBuffer:0.0} / {fire.EmberCapacity:0}\n" +
             $"Burning   {fire.BurningCells} · Charred   {fire.CharredCells}\n" +
-            $"Druids   {druids?.Band.AliveCount} / {druids?.Band.Total} alive · ritual {(druids?.Band.RitualComplete == true ? "complete" : "pending")}\n\n" +
+            $"Druids   {druids?.Band.AliveCount} / {druids?.Band.Total} alive · ritual {(druids?.Band.RitualComplete == true ? "complete" : "pending")}\n" +
+            $"Villagers   {villagers?.Village.AliveCount} / {villagers?.Village.Total} alive\n\n" +
             $"Water step   {sim.LastStepMilliseconds:0.00} ms\nFire tick   {host.LastFireAdvanceMilliseconds:0.00} ms\nMesh update   {view.LastUpdateMilliseconds:0.00} ms\nFPS   {Engine.GetFramesPerSecond()}\n\n" +
             $"Corrections   {sim.NegativeCorrections}\nInvalid values   {sim.InvalidValueCount}\nHeight clamps   {sim.HeightClampCount}";
         body.Text = Snapshot;

@@ -90,6 +90,7 @@ public partial class Main : Node3D
         var diagnostics = new Diagnostics { Name = "Diagnostics" };
         AddChild(diagnostics);
         diagnostics.Initialize(host, view, cursor, druids);
+        Village.Attach(this, host, cursor); // villagers: men, women, mothers with babies — wiring lives in Agents/Village.cs
 
         var spell = new SpellVfx { Name = "SpellVfx" };
         AddChild(spell);
