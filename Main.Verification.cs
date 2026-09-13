@@ -1,6 +1,8 @@
 using Godot;
 using System;
 using TheLevels.Agents;
+using TheLevels.Core.Agents;
+using TheLevels.Core.Vegetation;
 using TheLevels.Player;
 using TheLevels.Core.Simulation;
 using TheLevels.Simulation;
@@ -416,6 +418,189 @@ public partial class Main
         sim.ResetSimulation(); fireSim.ResetFire(); spell.ClearTransient();
         hand.DebugDrive(false, Vector3.Zero);
         GD.Print("P7 adapter checks PASS: five clean reset cycles, paused editing, single-step durations, corner/border brushing, domain-safe targeting from centre/corners/shallow rows, VFX detach cleanup, working originals.");
+    }
+
+
+    /// <summary>
+    /// P8 gate: the forest renders one instance per tree and rides terrain edits, wood
+    /// fuel is deposited so lightning kindles a tree, the torch spreads through the
+    /// grove and chars, the deer herd has bodies and bolts from fire while the sims are
+    /// paused, the frogs hop and survive a nearby fire by diving or fleeing, and reset
+    /// restores flora and fauna together.
+    /// </summary>
+    private void VerifyWildlife(SimulationHost host, FloraView forest, WildlifeView wildlife)
+    {
+        var sim = host.Heightfield;
+        var fireSim = host.Fire;
+        sim.ResetSimulation(); fireSim.ResetFire();
+        forest.ResetAll(); // re-scatter and re-deposit after the fire reset
+
+        var woods = forest.Forest;
+        var herd = wildlife.Herd;
+        var chorus = wildlife.Chorus;
+
+        if (woods.Trees.Count < 40) throw new InvalidOperationException("The forest is too thin to verify");
+        int rendered = 0;
+        foreach (Node child in forest.GetChildren())
+            if (child is MultiMeshInstance3D batch) rendered += batch.Multimesh.InstanceCount;
+        // Two instances per tree: a trunk batch and a canopy batch.
+        if (rendered != woods.Trees.Count * 2)
+            throw new InvalidOperationException($"Rendered {rendered} instances for {woods.Trees.Count} trees");
+        foreach (var tree in woods.Trees)
+        {
+            if (sim.SampleWater(tree.Position) > 0.02f)
+                throw new InvalidOperationException("A tree is standing in water");
+            sim.WorldToGrid(tree.Position, out float gx, out float gz);
+            if (fireSim.GetFuel((int)gx, (int)gz) < ForestManager.FuelDeposit)
+                throw new InvalidOperationException("A tree cell carries no wood fuel");
+        }
+
+        // Lightning kindles a tree; the torch spreads grove-neighbour to grove-neighbour
+        // and leaves a charred snag.
+        var torch = woods.Trees[0];
+        if (fireSim.Ignite(torch.Position, sim.BrushRadius * 0.8f, 0.9f) == 0)
+            throw new InvalidOperationException("Lightning did not kindle the tree cell");
+        int peakBurning = 0;
+        for (float t = 0f; t < TreeAgent.BurnSeconds + 0.5f; t += 1f / 30f)
+        {
+            woods.Advance(1f / 30f);
+            fireSim.StepOnce();
+            peakBurning = Math.Max(peakBurning, woods.BurningCount);
+        }
+        if (torch.State != TreeState.Burning && torch.State != TreeState.Charred)
+            throw new InvalidOperationException("The tree never caught fire");
+        if (peakBurning < 2)
+            throw new InvalidOperationException("The fire never jumped to a grove neighbour");
+        if (torch.State != TreeState.Charred)
+            throw new InvalidOperationException("The tree did not char after its burn");
+
+        // Terrain tracking: dump earth under a living tree and the trunk base must rise.
+        var live = torch; // first find any living tree
+        foreach (var tree in woods.Trees)
+            if (tree.State == TreeState.Alive) { live = tree; break; }
+        float groundBefore = forest.TrunkBaseWorldY(live);
+        var quarry = FindHighGround(sim); // fill the buffer away from the tree
+        for (int scoop = 0; scoop < 10; scoop++)
+            sim.ApplyBrush(quarry, MatterType.Earth, true, 1f);
+        for (int pour = 0; pour < 14; pour++)
+            sim.ApplyBrush(live.Position, MatterType.Earth, false, 1f);
+        forest.PublishAll();
+        if (forest.TrunkBaseWorldY(live) <= groundBefore + 1f)
+            throw new InvalidOperationException("The tree did not ride the raised ground");
+
+        // The herd: five bodies, living and moving while the sims are paused, then
+        // bolting from a fire lit inside the panic radius but clear of every deer.
+        if (herd.Total != 5 || herd.AliveCount != 5)
+            throw new InvalidOperationException("The herd is not five living deer");
+        var deerRoot = wildlife.GetNode<Node3D>("Deer");
+        if (deerRoot.GetChildCount() != 5) throw new InvalidOperationException("Missing deer bodies");
+        var frogRoot = wildlife.GetNode<Node3D>("Frogs");
+        if (frogRoot.GetChildCount() != chorus.Total)
+            throw new InvalidOperationException("Missing frog bodies");
+
+        // The grove test's reeds still burn and would drag the threat centroid off the
+        // herd; ResetFire also clears Paused, so pause after it.
+        fireSim.ResetFire();
+        sim.Paused = true; fireSim.Paused = true;
+        var threat = FindWildfirePoint(sim, fireSim,
+            new System.Numerics.Vector2(herd.SpawnCenter.X, herd.SpawnCenter.Z),
+            at => NearestDeerDistance(herd, new System.Numerics.Vector3(at.X, 0f, at.Y)) >= 5f);
+        float nearestBefore = NearestDeerDistance(herd, threat);
+        if (fireSim.Ignite(threat, 2.5f, 0.9f) == 0)
+            throw new InvalidOperationException("No fuel at the herd threat");
+        for (float t = 0f; t < 3f; t += 1f / 60f) herd.Advance(1f / 60f);
+        if (herd.AliveCount != 5)
+            throw new InvalidOperationException("Deer burned instead of fleeing");
+        if (NearestDeerDistance(herd, threat) <= nearestBefore + 2f)
+            throw new InvalidOperationException("The herd did not bolt from the fire");
+        sim.Paused = false; fireSim.Paused = false;
+        fireSim.ResetFire();
+
+        // The chorus: frogs hop on a calm bank, then survive a nearby fire by diving
+        // or fleeing — and one frog left standing in flame burns.
+        int hops = 0;
+        for (float t = 0f; t < 8f; t += 1f / 60f) chorus.Advance(1f / 60f);
+        foreach (var frog in chorus.Frogs) hops += frog.Hops;
+        if (hops == 0) throw new InvalidOperationException("No frog ever hopped");
+        if (chorus.AliveCount != chorus.Total)
+            throw new InvalidOperationException("Frogs died on a calm bank");
+
+        var centroid = ChorusCentroid(chorus);
+        var frogThreat = FindWildfirePoint(sim, fireSim, centroid,
+            at => NearestFrogDistance(chorus, new System.Numerics.Vector3(at.X, 0f, at.Y)) >= 3f);
+        if (fireSim.Ignite(frogThreat, 2f, 0.9f) == 0)
+            throw new InvalidOperationException("No fuel at the frog threat");
+        for (float t = 0f; t < 2.5f; t += 1f / 60f) chorus.Advance(1f / 60f);
+        if (chorus.AliveCount != chorus.Total)
+            throw new InvalidOperationException("A frog burned near the threat");
+
+        var victim = chorus.Frogs[0];
+        for (float t = 0f; t < 0.2f; t += 1f / 60f) chorus.Advance(1f / 60f);
+        foreach (var frog in chorus.Frogs)
+            if (frog.State is FrogState.Sit or FrogState.Hop) { victim = frog; break; }
+        if (fireSim.Ignite(victim.Position, 1.2f, 0.9f) == 0)
+            throw new InvalidOperationException("No fuel under the frog");
+        chorus.Advance(1f / 60f);
+        if (!victim.IsDead || victim.Death != FrogDeath.Burned)
+            throw new InvalidOperationException("The frog did not burn in the flame");
+
+        // Reset restores flora and fauna together.
+        forest.ResetAll(); wildlife.ResetAll();
+        if (woods.AliveCount != woods.Trees.Count || woods.BurningCount + woods.CharredCount != 0)
+            throw new InvalidOperationException("Reset left burned trees");
+        if (herd.AliveCount != 5 || chorus.AliveCount != chorus.Total)
+            throw new InvalidOperationException("Reset did not restore the wildlife");
+
+        sim.ResetSimulation(); fireSim.ResetFire();
+        GD.Print("P8 adapter checks PASS: instance-per-tree rendering, wood fuel, lightning kindle + grove torch spread + char, terrain riding, five deer bolting while paused, hopping frogs that dive/flee fire, frog burn, joint reset.");
+    }
+
+    private static float NearestDeerDistance(HerdManager herd, System.Numerics.Vector3 at)
+    {
+        float nearest = float.MaxValue;
+        foreach (var deer in herd.Agents)
+            nearest = MathF.Min(nearest, System.Numerics.Vector2.Distance(
+                new System.Numerics.Vector2(deer.Position.X, deer.Position.Z),
+                new System.Numerics.Vector2(at.X, at.Z)));
+        return nearest;
+    }
+
+    private static float NearestFrogDistance(FrogManager chorus, System.Numerics.Vector3 at)
+    {
+        float nearest = float.MaxValue;
+        foreach (var frog in chorus.Frogs)
+            nearest = MathF.Min(nearest, System.Numerics.Vector2.Distance(
+                new System.Numerics.Vector2(frog.Position.X, frog.Position.Z),
+                new System.Numerics.Vector2(at.X, at.Z)));
+        return nearest;
+    }
+
+    private static System.Numerics.Vector2 ChorusCentroid(FrogManager chorus)
+    {
+        var sum = System.Numerics.Vector2.Zero;
+        foreach (var frog in chorus.Frogs)
+            sum += new System.Numerics.Vector2(frog.Position.X, frog.Position.Z);
+        return sum / chorus.Frogs.Count;
+    }
+
+    /// <summary>A dry, fuelled point in 1 m rings off an anchor that also satisfies clear — threat fires need real fuel.</summary>
+    private static System.Numerics.Vector3 FindWildfirePoint(HeightfieldSimulation sim, FireSimulation fire,
+        System.Numerics.Vector2 anchor, Func<System.Numerics.Vector2, bool> clear)
+    {
+        for (int ring = 4; ring <= 9; ring++)
+        for (int step = 0; step < 8; step++)
+        {
+            float angle = step / 8f * MathF.PI * 2f;
+            var at = anchor + new System.Numerics.Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ring;
+            var probe = new System.Numerics.Vector3(at.X, 0f, at.Y);
+            if (!sim.ContainsWorldPosition(probe)) continue;
+            if (sim.SampleWater(probe) > 0.02f) continue;
+            sim.WorldToGrid(probe, out float gx, out float gz);
+            if (fire.GetFuel((int)gx, (int)gz) < 0.15f) continue;
+            if (!clear(at)) continue;
+            return probe;
+        }
+        throw new InvalidOperationException("No dry fuelled threat point near the anchor");
     }
 
 

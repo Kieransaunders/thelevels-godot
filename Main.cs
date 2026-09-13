@@ -77,6 +77,16 @@ public partial class Main : Node3D
         druids.Initialize(host);
         cursor.WorldReset += druids.ResetAll;
 
+        var forest = new FloraView { Name = "Forest" };
+        AddChild(forest);
+        forest.Initialize(host);
+        cursor.WorldReset += forest.ResetAll;
+
+        var wildlife = new WildlifeView { Name = "Wildlife" };
+        AddChild(wildlife);
+        wildlife.Initialize(host);
+        cursor.WorldReset += wildlife.ResetAll;
+
         var diagnostics = new Diagnostics { Name = "Diagnostics" };
         AddChild(diagnostics);
         diagnostics.Initialize(host, view, cursor, druids);
@@ -117,6 +127,11 @@ public partial class Main : Node3D
         if (Array.Exists(args, a => a == "--verify-p7"))
         {
             try { VerifyIntegration(host, view, camera, cursor, spell, hand, druids); }
+            catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
+        }
+        if (Array.Exists(args, a => a == "--verify-p8"))
+        {
+            try { VerifyWildlife(host, forest, wildlife); }
             catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); return; }
         }
         if (Array.Exists(args, a => a == "--showcase"))

@@ -90,6 +90,19 @@ namespace TheLevels.Core.Simulation
         public float GetFire(int x, int z) => fire[x + z * Resolution];
         public bool GetCharred(int x, int z) => charred[x + z * Resolution];
 
+        /// <summary>
+        /// Raises one cell's fuel (clamped to 1) — the flora deposits wood fuel on its
+        /// cells so reed fires can climb into the canopy. Out-of-bounds cells are ignored.
+        /// Note <see cref="ResetFire"/> regenerates fuel from the terrain and wipes these
+        /// deposits; whoever owns the flora must re-deposit after a fire reset.
+        /// </summary>
+        public void AddFuel(int x, int z, float amount)
+        {
+            if (x < 0 || z < 0 || x >= Resolution || z >= Resolution) return;
+            int i = x + z * Resolution;
+            fuel[i] = SimulationMath.Min(1f, fuel[i] + amount);
+        }
+
         /// Kindle every dry, fuelled cell within radius. Returns how many caught.
         public int Ignite(Vector3 worldPosition, float radius, float kindling = 0.35f)
         {
