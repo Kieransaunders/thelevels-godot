@@ -59,12 +59,12 @@ public partial class Diagnostics : CanvasLayer
         controls = new Label
         {
             Text = "GOD HAND: LEFT-HOLD SCOOPS WHAT'S UNDER IT (WATER OVER WATER, EARTH ON LAND) · RIGHT POURS WHAT YOU CARRY\n" +
-                   "1/2 MATTER HAND   3 FIRE   4 LIGHTNING   WASD MOVE   Q/E ROTATE   ↑/↓ TILT   WHEEL ZOOM   F FOCUS   R RESET   SPACE PAUSE   N STEP   F1 METRICS"
+                   "1/2 MATTER HAND   3 FIRE   4 LIGHTNING   WASD MOVE   Q/E ROTATE   ↑/↓ TILT   WHEEL ZOOM   F FOCUS   R RESET   L NEXT LEVEL   SPACE PAUSE   N STEP   F1 METRICS"
         };
         controls.AddThemeFontSizeOverride("font_size", 13);
         if (host.Mission != null)
             controls.Text = "LEFT HOLD: GATHER   ·   RIGHT HOLD: POUR   ·   AMBER: EARTH   /   BLUE: WATER\n" +
-                "WASD MOVE   Q/E ROTATE   ↑/↓ TILT   SCROLL ZOOM   F FIND PEOPLE   R RESTART   SPACE PAUSE   N STEP WATER   F1 METRICS";
+                "WASD MOVE   Q/E ROTATE   ↑/↓ TILT   SCROLL ZOOM   F FIND PEOPLE   R RESTART   L NEXT LEVEL   SPACE PAUSE   N STEP WATER   F1 METRICS";
         controls.AddThemeColorOverride("font_color", new Color(.70f, .74f, .68f));
         var controlsPanel = new PanelContainer
         {
