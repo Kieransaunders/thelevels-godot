@@ -40,9 +40,13 @@ public partial class Main
             host.Heightfield.ResetSimulation();
             host.Fire.ResetFire();
             camera.ResetView();
-            await WaitFrames(3);
+            // Assert before yielding: the solver keeps stepping in _Process, so StepCount is
+            // only meaningfully zero in the same frame as the reset.
             if (host.Heightfield.EarthBuffer != 0f || host.Heightfield.StepCount != 0)
                 throw new InvalidOperationException($"{name}: reset left the hand or clock dirty");
+            await WaitFrames(3);
+            if (host.Heightfield.LastError != null || host.Heightfield.InvalidValueCount != 0)
+                throw new InvalidOperationException($"{name}: faulted after reset: {host.Heightfield.LastError}");
 
             GD.Print($"Level boot checks PASS ({name}): simulation built, terrain rendered, "
                      + "scene assembled, thirty frames clean, reset clean.");
