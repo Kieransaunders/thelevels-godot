@@ -1,6 +1,5 @@
 using System;
 using System.Numerics;
-using TheLevels.Core.Math;
 using TheLevels.Core.Simulation;
 
 namespace TheLevels.Core.Agents;
@@ -17,13 +16,11 @@ public enum DruidDeath { None, Drowned, Burned }
 public sealed class DruidAgent
 {
     public const float WalkSpeed = 2.5f;
-    public const float WadeDepth = 0.30f;
-    public const float DrownDepth = 0.85f;
-    public const float DrownAfterSeconds = 2.2f;
-    public const float ProbeDistance = 2.4f;
+    public const float WadeDepth = PedestrianSteering.WadeDepth;
+    public const float DrownDepth = PedestrianSteering.DrownDepth;
+    public const float DrownAfterSeconds = PedestrianSteering.DrownAfterSeconds;
+    public const float ProbeDistance = PedestrianSteering.ProbeDistance;
     private const float ArriveDistance = 1.1f;
-
-    private static readonly float[] AvoidAngles = { 38f, -38f, 76f, -76f, 114f, -114f, 152f, -152f };
 
     private readonly HeightfieldSimulation heightfield;
     private readonly FireSimulation fire;
@@ -61,7 +58,7 @@ public sealed class DruidAgent
         float depth = heightfield.SampleWater(position);
         Wading = depth > WadeDepth;
 
-        if (FireAt(position) > 0.1f) { Die(DruidDeath.Burned); return; }
+        if (PedestrianSteering.FireAt(heightfield, fire, position) > 0.1f) { Die(DruidDeath.Burned); return; }
 
         if (depth > DrownDepth)
         {
@@ -90,15 +87,15 @@ public sealed class DruidAgent
 
         Vector2 desired = goal - here;
         if (desired.LengthSquared() > 0.04f) desired = Vector2.Normalize(desired);
-        desired = AvoidHazards(position, desired);
+        desired = PedestrianSteering.AvoidHazards(heightfield, fire, position, desired, WadeDepth);
 
         float speed = WalkSpeed * (Wading ? 0.45f : 1f) * (State == DruidState.Panic ? 1.7f : 1f);
         bool moving = desired != Vector2.Zero;
         if (moving)
         {
             position += new Vector3(desired.X, 0f, desired.Y) * (speed * delta);
-            position = ClampToWorld(position);
-            Heading = TurnToward(Heading, MathF.Atan2(desired.X, desired.Y), 10f * delta);
+            position = PedestrianSteering.ClampToWorld(position, heightfield);
+            Heading = PedestrianSteering.TurnToward(Heading, MathF.Atan2(desired.X, desired.Y), 10f * delta);
         }
 
         position.Y = heightfield.SampleSurface(position) + (Wading ? -0.12f : 0f);
@@ -106,56 +103,9 @@ public sealed class DruidAgent
         Position = position;
     }
 
-    private Vector2 AvoidHazards(Vector3 position, Vector2 desired)
-    {
-        if (SafeStep(position, desired)) return desired;
-        foreach (float degrees in AvoidAngles)
-        {
-            Vector2 turned = Rotate(desired, degrees * (MathF.PI / 180f));
-            if (SafeStep(position, turned)) return turned;
-        }
-        return Vector2.Zero; // boxed in by water and fire — waits for the druid player
-    }
-
-    /// <summary>
-    /// Preserved source limitation: the Unity prototype samples only the probe endpoint at
-    /// 2.4 m, never the segment in between, so a hazard narrower than the probe — a single
-    /// 0.75 m rhyne cell, say — is stepped into rather than avoided. Kept for port parity;
-    /// drowning in a hidden channel is a legible outcome the player can bridge.
-    /// </summary>
-    private bool SafeStep(Vector3 position, Vector2 direction)
-    {
-        Vector3 probe = position + new Vector3(direction.X, 0f, direction.Y) * ProbeDistance;
-        if (!heightfield.ContainsWorldPosition(probe)) return false;
-        if (heightfield.SampleWater(probe) > WadeDepth + 0.05f) return false;
-        return FireAt(probe) <= 0.05f;
-    }
-
-    private float FireAt(Vector3 position)
-    {
-        heightfield.WorldToGrid(position, out float gx, out float gz);
-        return fire.GetFire((int)gx, (int)gz);
-    }
-
-    private Vector3 ClampToWorld(Vector3 position)
-    {
-        float half = heightfield.WorldSize * 0.5f - 2f;
-        position.X = SimulationMath.Clamp(position.X, -half, half);
-        position.Z = SimulationMath.Clamp(position.Z, -half, half);
-        return position;
-    }
-
-    /// <summary>Shortest-arc turn from one yaw to another; internal for the wrap test.</summary>
+    /// <summary>Shortest-arc turn, delegated to the shared pedestrian steering (pinned by the druid wrap test).</summary>
     public static float TurnToward(float from, float to, float t)
-    {
-        float difference = (to - from + MathF.PI) % (MathF.PI * 2f);
-        if (difference < 0f) difference += MathF.PI * 2f;
-        return from + (difference - MathF.PI) * SimulationMath.Clamp01(t);
-    }
-
-    private static Vector2 Rotate(Vector2 v, float radians)
-        => new(v.X * MathF.Cos(radians) - v.Y * MathF.Sin(radians),
-               v.X * MathF.Sin(radians) + v.Y * MathF.Cos(radians));
+        => PedestrianSteering.TurnToward(from, to, t);
 
     private void Die(DruidDeath cause)
     {
