@@ -15,7 +15,7 @@ namespace TheLevels.Core.Simulation
     public sealed class HeightfieldSimulation
     {
         private readonly SimulationConfig config;
-        private readonly Action<int, float, float, float, float[], float[]> levelFill;
+        private readonly LevelFill levelFill;
 
         private const float Gravity = 9.81f;
 
@@ -52,7 +52,7 @@ namespace TheLevels.Core.Simulation
         /// and the delegate is the whole contract. Promote it if levels ever need state.
         /// </summary>
         public HeightfieldSimulation(SimulationConfig simulationConfig,
-            Action<int, float, float, float, float[], float[]>? levelFill = null)
+            LevelFill? levelFill = null)
         {
             config = simulationConfig;
             this.levelFill = levelFill ?? RaisedWay.Fill;

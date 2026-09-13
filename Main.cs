@@ -2,6 +2,7 @@ using Godot;
 using System;
 using TheLevels.Agents;
 using TheLevels.Player;
+using TheLevels.Core.Levels;
 using TheLevels.Core.Simulation;
 using TheLevels.Simulation;
 using TheLevels.UI;
@@ -17,7 +18,21 @@ public partial class Main : Node3D
         InputBindings.Register();
 
         string[] args = OS.GetCmdlineUserArgs();
-        var host = new SimulationHost { Name = "SimulationHost", Sandbox = Array.Exists(args, a => a == "--sandbox") };
+        if (Array.Exists(args, a => a == "--list-levels"))
+        {
+            // "level <name> <title>" — verify.sh greps this to drive its per-level loop.
+            foreach (Level entry in Catalogue.All) GD.Print($"level {entry.Name} {entry.Title}");
+            GetTree().Quit();
+            return;
+        }
+        // L cycles levels in-game; --level= picks one at launch. The L key wins, so a
+        // developer can start anywhere and walk the catalogue without relaunching.
+        string requested = RequestedLevel ?? ReadLevelArg(args);
+        RequestedLevel = null;
+        if (!Catalogue.Exists(requested))
+            GD.PushWarning($"Unknown level '{requested}'; loading {Catalogue.Default.Name}. --list-levels shows them all.");
+        var host = new SimulationHost { Name = "SimulationHost", LevelName = requested };
+        currentLevel = Catalogue.Find(requested).Name;
         AddChild(host);
         var view = new HeightfieldView { Name = "HeightfieldView" };
         AddChild(view);
@@ -114,8 +129,11 @@ public partial class Main : Node3D
             missionHud.Initialize(host);
         }
 
-        GD.Print($"The Levels: {host.Heightfield.Resolution}² world ready; engine {Engine.GetVersionInfo()["string"]}");
+        GD.Print($"The Levels: {host.Level.Title} — {host.Heightfield.Resolution}² world ready; "
+                 + $"engine {Engine.GetVersionInfo()["string"]}");
 
+        if (Array.Exists(args, a => a == "--verify-level")) VerifyLevelBoots(host, view, camera);
+        if (Array.Exists(args, a => a == "--verify-level-hop")) VerifyLevelHop(host);
         if (Array.Exists(args, a => a == "--verify-level-one")) VerifyFirstCrossing(host, camera, cursor, druids);
 
         if (Array.Exists(args, a => a == "--verify-p3"))
@@ -165,5 +183,37 @@ public partial class Main : Node3D
                 }
                 CaptureAfterFrames(spec, frames, diagnostics);
             }
+    }
+
+    /// <summary>Set by the L key before a scene reload, so the rebuild lands on the next level.</summary>
+    private static string RequestedLevel;
+
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        // Test the event, not the polled action: _UnhandledInput runs off the event queue,
+        // where IsActionJustPressed's frame-scoped state is not reliable.
+        if (!@event.IsActionPressed(InputBindings.NextLevel)) return;
+        LoadNextLevel();
+    }
+
+    private string currentLevel = Catalogue.Default.Name;
+
+    /// <summary>Rebuilds the scene on the next catalogue entry. Bound to L; also used by the gate.</summary>
+    internal void LoadNextLevel()
+    {
+        RequestedLevel = Catalogue.Next(currentLevel).Name;
+        GD.Print($"Loading {RequestedLevel}…");
+        GetTree().ReloadCurrentScene();
+    }
+
+    private static string ReadLevelArg(string[] args)
+    {
+        foreach (string arg in args)
+        {
+            if (arg.StartsWith("--level=")) return arg["--level=".Length..];
+            // --sandbox is the old spelling, kept so existing scripts keep working.
+            if (arg == "--sandbox") return "sandbox";
+        }
+        return Catalogue.Default.Name;
     }
 }

@@ -7,7 +7,9 @@ namespace TheLevels.Simulation;
 
 public partial class SimulationHost : Node
 {
-    public bool Sandbox { get; set; }
+    /// <summary>Which level to build; set before the node enters the tree.</summary>
+    public string LevelName { get; set; } = Catalogue.Default.Name;
+    public Level Level { get; private set; }
     public FirstCrossingMission Mission { get; private set; }
     public HeightfieldSimulation Heightfield { get; private set; }
     public FireSimulation Fire { get; private set; }
@@ -16,10 +18,11 @@ public partial class SimulationHost : Node
 
     public override void _Ready()
     {
-        Heightfield = Sandbox ? new HeightfieldSimulation()
-            : new HeightfieldSimulation(FirstCrossing.Configuration(), FirstCrossing.Fill);
+        Level = Catalogue.Find(LevelName);
+        Heightfield = new HeightfieldSimulation(Level.Configure(), Level.Fill);
         Fire = new FireSimulation(Heightfield);
-        if (!Sandbox) Mission = new FirstCrossingMission(Heightfield, Fire);
+        // Only the first crossing has a mission so far; the sandbox is bare on purpose.
+        if (Level.Name == "first-crossing") Mission = new FirstCrossingMission(Heightfield, Fire);
         Heightfield.Faulted += OnFault;
         ProcessPriority = -100;
     }
